@@ -20,8 +20,8 @@ echo -e "${BLUE}║     Otomatik Kurulum Başlatılıyor...                     
 echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Çalışma dizini
-INSTALL_DIR="$HOME/bader-dernek"
+# Çalışma dizini - Masaüstünde dernekv1 klasörü
+INSTALL_DIR="$HOME/Desktop/dernekv1"
 
 # Homebrew kontrolü ve kurulumu
 install_homebrew() {
