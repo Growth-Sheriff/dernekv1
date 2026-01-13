@@ -145,6 +145,12 @@ fn main() {
             commands::sync::push_changes,
             commands::sync::pull_changes,
             commands::sync::manual_sync,
+            commands::sync::get_pending_sync_count,
+            commands::sync::get_pending_sync_changes,
+            commands::sync::mark_changes_synced,
+            commands::sync::queue_sync_change,
+            commands::sync::apply_sync_changes,
+            commands::sync::get_device_id,
             // User Management
             commands::users::get_users,
             commands::users::get_user,

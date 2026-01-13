@@ -232,3 +232,178 @@ pub async fn manual_sync(
         errors: [push_result.errors, pull_result.errors].concat(),
     })
 }
+
+/// Bekleyen sync değişikliklerinin sayısını döndür
+#[tauri::command]
+pub fn get_pending_sync_count(
+    state: State<'_, crate::AppState>,
+    tenantIdParam: String,
+) -> Result<i32, String> {
+    use crate::db::schema::sync_changes::dsl::*;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let count: i64 = sync_changes
+        .filter(crate::db::schema::sync_changes::tenant_id.eq(&tenantIdParam))
+        .filter(synced.eq(false))
+        .count()
+        .get_result(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(count as i32)
+}
+
+/// Bekleyen sync değişikliklerini JSON olarak döndür
+#[tauri::command]
+pub fn get_pending_sync_changes(
+    state: State<'_, crate::AppState>,
+    tenantIdParam: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    use crate::db::schema::sync_changes::dsl::*;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let changes = sync_changes
+        .filter(crate::db::schema::sync_changes::tenant_id.eq(&tenantIdParam))
+        .filter(synced.eq(false))
+        .order(created_at.asc())
+        .load::<SyncChange>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    let result: Vec<serde_json::Value> = changes.iter().map(|c| {
+        serde_json::json!({
+            "table_name": c.table_name,
+            "record_id": c.record_id,
+            "action": c.operation,
+            "data": serde_json::from_str::<serde_json::Value>(&c.data).unwrap_or(serde_json::Value::Null),
+            "local_updated_at": c.created_at
+        })
+    }).collect();
+
+    Ok(result)
+}
+
+/// Sync edilen değişiklikleri işaretle
+#[tauri::command]
+pub fn mark_changes_synced(
+    state: State<'_, crate::AppState>,
+    tenantIdParam: String,
+    changeIds: Vec<String>,
+) -> Result<i32, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut updated = 0;
+
+    for change_id in &changeIds {
+        let result = diesel::sql_query(
+            "UPDATE sync_changes SET synced = 1, updated_at = ?1 WHERE record_id = ?2 AND tenant_id = ?3"
+        )
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(change_id)
+        .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
+        .execute(&mut conn);
+
+        if result.is_ok() {
+            updated += 1;
+        }
+    }
+
+    Ok(updated)
+}
+
+/// Değişiklik kuyruğuna ekle
+#[tauri::command]
+pub fn queue_sync_change(
+    state: State<'_, crate::AppState>,
+    tenantIdParam: String,
+    change: serde_json::Value,
+) -> Result<String, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let table_name = change.get("table_name").and_then(|v| v.as_str()).unwrap_or("");
+    let record_id = change.get("record_id").and_then(|v| v.as_str()).unwrap_or("");
+    let action = change.get("action").and_then(|v| v.as_str()).unwrap_or("update");
+    let data = change.get("data").map(|v| v.to_string()).unwrap_or("{}".to_string());
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(
+        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, synced, sync_version, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&id)
+    .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
+    .bind::<diesel::sql_types::Text, _>(table_name)
+    .bind::<diesel::sql_types::Text, _>(record_id)
+    .bind::<diesel::sql_types::Text, _>(action)
+    .bind::<diesel::sql_types::Text, _>(&data)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    Ok(id)
+}
+
+/// Sunucudan gelen değişiklikleri uygula
+#[tauri::command]
+pub fn apply_sync_changes(
+    state: State<'_, crate::AppState>,
+    tenantIdParam: String,
+    changes: Vec<serde_json::Value>,
+) -> Result<i32, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let mut applied = 0;
+
+    for change in changes {
+        let table_name = change.get("table_name").and_then(|v| v.as_str()).unwrap_or("");
+        let record_id = change.get("record_id").and_then(|v| v.as_str()).unwrap_or("");
+        let action = change.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        let data = change.get("data");
+
+        // TODO: Tablo bazlı uygulama mantığı
+        // Her tablo için ayrı handler yazılmalı
+        match action {
+            "create" | "update" => {
+                // Upsert işlemi
+                println!("Applying {} to {} for record {}", action, table_name, record_id);
+                applied += 1;
+            }
+            "delete" => {
+                // Soft delete
+                println!("Deleting from {} record {}", table_name, record_id);
+                applied += 1;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(applied)
+}
+
+/// Cihaz ID'sini döndür (hardware fingerprint)
+#[tauri::command]
+pub fn get_device_id() -> Result<String, String> {
+    // TODO: Gerçek hardware fingerprint implementasyonu
+    // Şimdilik machine-uid veya benzeri bir kütüphane kullanılabilir
+    
+    // Geçici olarak hostname + random id kullanalım
+    let hostname = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    
+    let device_id = format!("{}_{}", hostname, uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000"));
+    
+    Ok(device_id)
+}
+
