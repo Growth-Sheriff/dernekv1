@@ -135,10 +135,10 @@ export const ArsivPage: React.FC = () => {
     try {
       setLoading(true);
       const result = await invoke<Belge[]>('get_belgeler', {
-        tenantIdParam: tenant.id,
-        belgeTuru: filterTur || null,
-        bagliKayitTuru: null,
-        bagliKayitId: null,
+        tenant_id_param: tenant.id,
+        belge_turu: filterTur || null,
+        bagli_kayit_turu: null,
+        bagli_kayit_id: null,
         skip: 0,
         limit: 500,
       });
@@ -174,8 +174,8 @@ export const ArsivPage: React.FC = () => {
   const handleDownload = async (belge: Belge) => {
     try {
       const result = await invoke<{ dosya_adi: string; base64_data: string }>('download_belge', {
-        tenantIdParam: tenant!.id,
-        belgeId: belge.id,
+        tenant_id_param: tenant!.id,
+        belge_id: belge.id,
       });
 
       // Create download link
@@ -200,8 +200,8 @@ export const ArsivPage: React.FC = () => {
 
     try {
       await invoke('delete_belge', {
-        tenantIdParam: tenant!.id,
-        belgeId: belge.id,
+        tenant_id_param: tenant!.id,
+        belge_id: belge.id,
       });
       toast.success('Belge silindi');
       loadBelgeler();
