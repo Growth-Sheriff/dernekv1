@@ -15,6 +15,9 @@ import OnboardingSetupPage from './pages/onboarding/setup';
 // Dashboard
 import DashboardPage from './pages/dashboard/index';
 
+// Arşiv - doğrudan import
+import ArsivPage from './pages/arsiv';
+
 // Tauri kontrolü
 const isTauri = (): boolean => {
   return typeof window !== 'undefined' && !!(window as any).__TAURI__;
@@ -23,11 +26,14 @@ const isTauri = (): boolean => {
 // Protected Route Wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  console.log('🔐 ProtectedRoute - isAuthenticated:', isAuthenticated);
   
   if (!isAuthenticated) {
+    console.log('🔐 ProtectedRoute - Redirecting to /login');
     return <Navigate to="/login" replace />;
   }
   
+  console.log('🔐 ProtectedRoute - Rendering children');
   return <>{children}</>;
 };
 
@@ -162,6 +168,9 @@ function AppContent() {
       }>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        
+        {/* Arşiv - manuel route */}
+        <Route path="arsiv" element={<ArsivPage />} />
         
         {/* routes.tsx'den gelen tüm child route'lar */}
         {routes.find(r => r.path === '/')?.children?.map((child, index) => (

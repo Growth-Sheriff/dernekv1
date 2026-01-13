@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS butce (
     yil INTEGER NOT NULL,
     kategori TEXT NOT NULL,
     alt_kategori TEXT,
+    donem TEXT,
     planlanan_gelir REAL DEFAULT 0.0,
     planlanan_gider REAL DEFAULT 0.0,
     gerceklesen_gelir REAL DEFAULT 0.0,

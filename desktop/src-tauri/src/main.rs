@@ -14,6 +14,7 @@ fn main() {
     let app_state = AppState::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .setup(|app| {
             let app_dir = app.path()

@@ -11,6 +11,7 @@ const loginSchema = z.object({
   email: z.string().email('Geçerli bir email giriniz'),
   password: z.string().min(6, 'Şifre en az 6 karakter olmalı'),
   mode: z.enum(['LOCAL', 'ONLINE', 'HYBRID']),
+  rememberMe: z.boolean().optional(),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -18,6 +19,7 @@ type LoginForm = z.infer<typeof loginSchema>;
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
+  const setRememberMe = useAuthStore((state) => state.setRememberMe);
   const setMode = useLicenseStore((state) => state.setMode);
   
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginForm>({
@@ -68,6 +70,8 @@ export const LoginPage: React.FC = () => {
           password: data.password,
         });
         
+        // Beni Hatırla ayarını kaydet
+        setRememberMe(data.rememberMe ?? true);
         login(result.user, result.tenant, result.token);
         setMode('LOCAL');
         navigate('/');
@@ -140,6 +144,20 @@ export const LoginPage: React.FC = () => {
               {errors.password && (
                 <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
               )}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  {...register('rememberMe')}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-600">Beni Hatırla</span>
+              </label>
+              <a href="#" className="text-sm text-blue-600 hover:underline">
+                Şifremi Unuttum
+              </a>
             </div>
 
             <button

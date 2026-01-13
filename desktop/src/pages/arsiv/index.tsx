@@ -113,7 +113,9 @@ const getBelgeTuruLabel = (tur: string): string => {
 };
 
 export const ArsivPage: React.FC = () => {
+  console.log('🗂️ ArsivPage render başladı');
   const tenant = useAuthStore((state) => state.tenant);
+  console.log('🗂️ Tenant:', tenant);
   const [belgeler, setBelgeler] = useState<Belge[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -135,7 +137,7 @@ export const ArsivPage: React.FC = () => {
     try {
       setLoading(true);
       const result = await invoke<Belge[]>('get_belgeler', {
-        tenant_id_param: tenant.id,
+        tenantIdParam: tenant.id,
         belge_turu: filterTur || null,
         bagli_kayit_turu: null,
         bagli_kayit_id: null,
@@ -174,8 +176,8 @@ export const ArsivPage: React.FC = () => {
   const handleDownload = async (belge: Belge) => {
     try {
       const result = await invoke<{ dosya_adi: string; base64_data: string }>('download_belge', {
-        tenant_id_param: tenant!.id,
-        belge_id: belge.id,
+        tenantIdParam: tenant!.id,
+        belgeId: belge.id,
       });
 
       // Create download link
@@ -200,8 +202,8 @@ export const ArsivPage: React.FC = () => {
 
     try {
       await invoke('delete_belge', {
-        tenant_id_param: tenant!.id,
-        belge_id: belge.id,
+        tenantIdParam: tenant!.id,
+        belgeId: belge.id,
       });
       toast.success('Belge silindi');
       loadBelgeler();
@@ -216,6 +218,19 @@ export const ArsivPage: React.FC = () => {
     b.dosya_adi.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (b.aciklama && b.aciklama.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // Tenant yoksa uyarı göster
+  if (!tenant) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Archive className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+          <p className="text-lg font-medium text-muted-foreground">Oturum bulunamadı</p>
+          <p className="text-sm text-muted-foreground mt-1">Lütfen giriş yapın</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -300,12 +315,12 @@ export const ArsivPage: React.FC = () => {
               </div>
             </div>
 
-            <Select value={filterTur} onValueChange={setFilterTur}>
+            <Select value={filterTur || 'all'} onValueChange={(v) => setFilterTur(v === 'all' ? '' : v)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Belge Türü" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Tümü</SelectItem>
+                <SelectItem value="all">Tümü</SelectItem>
                 <SelectItem value="gelir">Gelir Belgesi</SelectItem>
                 <SelectItem value="gider">Gider Belgesi</SelectItem>
                 <SelectItem value="vadeli_islem">Vadeli İşlem</SelectItem>
@@ -317,12 +332,12 @@ export const ArsivPage: React.FC = () => {
               </SelectContent>
             </Select>
 
-            <Select value={filterResmi} onValueChange={setFilterResmi}>
+            <Select value={filterResmi || 'all'} onValueChange={(v) => setFilterResmi(v === 'all' ? '' : v)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Resmi Durum" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Tümü</SelectItem>
+                <SelectItem value="all">Tümü</SelectItem>
                 <SelectItem value="resmi">Resmi</SelectItem>
                 <SelectItem value="gayri_resmi">Gayri Resmi</SelectItem>
               </SelectContent>

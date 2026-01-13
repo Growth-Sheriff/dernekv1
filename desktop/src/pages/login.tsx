@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { toast } from 'sonner';
@@ -9,13 +9,23 @@ interface LoginProps {
 
 export default function LoginPage({ hasSetup }: LoginProps) {
   const navigate = useNavigate();
-  const { login } = useAuthStore();
+  const { login, setRememberMe: setStoreRememberMe } = useAuthStore();
   
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Sayfa açıldığında kaydedilmiş kullanıcı adını yükle
+  useEffect(() => {
+    const savedUsername = localStorage.getItem('saved_username');
+    const shouldRemember = localStorage.getItem('remember_me') === 'true';
+    if (savedUsername && shouldRemember) {
+      setUsername(savedUsername);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +64,9 @@ export default function LoginPage({ hasSetup }: LoginProps) {
       });
 
       if (result.success && result.user && result.tenant && result.token) {
+        // Önce store'da rememberMe ayarla (persist davranışını belirler)
+        setStoreRememberMe(rememberMe);
+        
         // Beni hatırla seçiliyse localStorage'a kaydet
         if (rememberMe) {
           localStorage.setItem('remember_me', 'true');

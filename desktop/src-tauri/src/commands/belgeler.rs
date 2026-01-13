@@ -48,7 +48,7 @@ pub struct CreateBelgeRequest {
 #[tauri::command]
 pub fn get_belgeler(
     state: State<AppState>,
-    tenant_id_param: String,
+    tenantIdParam: String,
     belge_turu: Option<String>,
     bagli_kayit_turu: Option<String>,
     bagli_kayit_id: Option<String>,
@@ -67,7 +67,7 @@ pub fn get_belgeler(
             diesel::sql_query(
                 "SELECT * FROM belgeler WHERE tenant_id = ?1 AND belge_turu = ?2 AND bagli_kayit_turu = ?3 AND bagli_kayit_id = ?4 AND is_active = 1 ORDER BY created_at DESC LIMIT ?5 OFFSET ?6"
             )
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
             .bind::<diesel::sql_types::Text, _>(&turu)
             .bind::<diesel::sql_types::Text, _>(&bagli_turu)
             .bind::<diesel::sql_types::Text, _>(&bagli_id)
@@ -80,7 +80,7 @@ pub fn get_belgeler(
             diesel::sql_query(
                 "SELECT * FROM belgeler WHERE tenant_id = ?1 AND belge_turu = ?2 AND is_active = 1 ORDER BY created_at DESC LIMIT ?3 OFFSET ?4"
             )
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
             .bind::<diesel::sql_types::Text, _>(&turu)
             .bind::<diesel::sql_types::BigInt, _>(query_limit)
             .bind::<diesel::sql_types::BigInt, _>(query_skip)
@@ -91,7 +91,7 @@ pub fn get_belgeler(
             diesel::sql_query(
                 "SELECT * FROM belgeler WHERE tenant_id = ?1 AND bagli_kayit_turu = ?2 AND bagli_kayit_id = ?3 AND is_active = 1 ORDER BY created_at DESC LIMIT ?4 OFFSET ?5"
             )
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
             .bind::<diesel::sql_types::Text, _>(&bagli_turu)
             .bind::<diesel::sql_types::Text, _>(&bagli_id)
             .bind::<diesel::sql_types::BigInt, _>(query_limit)
@@ -103,7 +103,7 @@ pub fn get_belgeler(
             diesel::sql_query(
                 "SELECT * FROM belgeler WHERE tenant_id = ?1 AND is_active = 1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
             )
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
             .bind::<diesel::sql_types::BigInt, _>(query_limit)
             .bind::<diesel::sql_types::BigInt, _>(query_skip)
             .load::<Belge>(&mut conn)
@@ -115,14 +115,14 @@ pub fn get_belgeler(
 #[tauri::command]
 pub fn create_belge(
     state: State<AppState>,
-    tenant_id_param: String,
+    tenantIdParam: String,
     request: CreateBelgeRequest,
 ) -> Result<Belge, String> {
     let db = state.db.lock().unwrap();
     let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    let belge_id = Uuid::new_v4().to_string();
+    let belgeId = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let resmi_durum = request.resmi_durum.clone().unwrap_or_else(|| "gayri_resmi".to_string());
 
@@ -130,8 +130,8 @@ pub fn create_belge(
         "INSERT INTO belgeler (id, tenant_id, belge_turu, baslik, dosya_adi, dosya_yolu, dosya_boyutu, mime_type, bagli_kayit_turu, bagli_kayit_id, aciklama, etiketler, resmi_durum, is_active, created_at, updated_at) 
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?15)"
     )
-    .bind::<diesel::sql_types::Text, _>(&belge_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, _>(&belgeId)
+    .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
     .bind::<diesel::sql_types::Text, _>(&request.belge_turu)
     .bind::<diesel::sql_types::Text, _>(&request.baslik)
     .bind::<diesel::sql_types::Text, _>(&request.dosya_adi)
@@ -149,7 +149,7 @@ pub fn create_belge(
     .map_err(|e| e.to_string())?;
 
     diesel::sql_query("SELECT * FROM belgeler WHERE id = ?1")
-        .bind::<diesel::sql_types::Text, _>(&belge_id)
+        .bind::<diesel::sql_types::Text, _>(&belgeId)
         .get_result::<Belge>(&mut conn)
         .map_err(|e| e.to_string())
 }
@@ -157,8 +157,8 @@ pub fn create_belge(
 #[tauri::command]
 pub fn update_belge(
     state: State<AppState>,
-    tenant_id_param: String,
-    belge_id: String,
+    tenantIdParam: String,
+    belgeId: String,
     request: CreateBelgeRequest,
 ) -> Result<Belge, String> {
     let db = state.db.lock().unwrap();
@@ -183,13 +183,13 @@ pub fn update_belge(
     .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&request.etiketler)
     .bind::<diesel::sql_types::Text, _>(&resmi_durum)
     .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&belge_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, _>(&belgeId)
+    .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
     .execute(&mut conn)
     .map_err(|e| e.to_string())?;
 
     diesel::sql_query("SELECT * FROM belgeler WHERE id = ?1")
-        .bind::<diesel::sql_types::Text, _>(&belge_id)
+        .bind::<diesel::sql_types::Text, _>(&belgeId)
         .get_result::<Belge>(&mut conn)
         .map_err(|e| e.to_string())
 }
@@ -205,8 +205,8 @@ pub struct DownloadBelgeResponse {
 #[tauri::command]
 pub fn download_belge(
     state: State<AppState>,
-    tenant_id_param: String,
-    belge_id: String,
+    tenantIdParam: String,
+    belgeId: String,
 ) -> Result<DownloadBelgeResponse, String> {
     let db = state.db.lock().unwrap();
     let pool = db.as_ref().ok_or("Database not initialized")?;
@@ -216,8 +216,8 @@ pub fn download_belge(
     let belge = diesel::sql_query(
         "SELECT * FROM belgeler WHERE id = ?1 AND tenant_id = ?2 AND is_active = 1"
     )
-    .bind::<diesel::sql_types::Text, _>(&belge_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, _>(&belgeId)
+    .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
     .get_result::<Belge>(&mut conn)
     .map_err(|e| format!("Belge bulunamadı: {}", e))?;
 
@@ -263,8 +263,8 @@ pub fn download_belge(
 #[tauri::command]
 pub fn delete_belge(
     state: State<AppState>,
-    tenant_id_param: String,
-    belge_id: String,
+    tenantIdParam: String,
+    belgeId: String,
 ) -> Result<(), String> {
     let db = state.db.lock().unwrap();
     let pool = db.as_ref().ok_or("Database not initialized")?;
@@ -277,8 +277,8 @@ pub fn delete_belge(
         "UPDATE belgeler SET is_active = 0, updated_at = ?1 WHERE id = ?2 AND tenant_id = ?3"
     )
     .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&belge_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, _>(&belgeId)
+    .bind::<diesel::sql_types::Text, _>(&tenantIdParam)
     .execute(&mut conn)
     .map_err(|e| e.to_string())?;
 

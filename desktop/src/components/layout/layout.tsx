@@ -1,10 +1,13 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
 import { SkipToContent } from '@/components/ui/accessibility';
 
 export const Layout: React.FC = () => {
+  const location = useLocation();
+  console.log('🏠 Layout render - current path:', location.pathname);
+  
   return (
     <div className="flex h-screen bg-background">
       {/* Skip to main content link for keyboard users */}
