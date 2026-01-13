@@ -2,7 +2,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Plus, Package, Search, Filter, Eye, Pencil, Trash2, RotateCcw } from 'lucide-react';
+import { ColumnDef } from '@tanstack/react-table';
 import { useAuthStore } from '@/store/authStore';
+import { DataTable } from '@/components/common/data-table';
 import { PageHeader } from '@/components/common/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -113,6 +115,105 @@ export const DemirbaslarListPage: React.FC = () => {
     return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
   };
 
+  const getDurumBadge = (durum?: string) => {
+    switch (durum) {
+      case 'Aktif': return 'bg-green-100 text-green-800';
+      case 'Bakımda': return 'bg-yellow-100 text-yellow-800';
+      case 'Hurda': return 'bg-red-100 text-red-800';
+      case 'Satıldı': return 'bg-gray-100 text-gray-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // DataTable columns tanımı
+  const columns: ColumnDef<Demirbas>[] = React.useMemo(() => [
+    {
+      accessorKey: 'demirbas_no',
+      header: 'No',
+      cell: ({ row }) => <span className="font-mono">{row.original.demirbas_no}</span>,
+    },
+    {
+      accessorKey: 'ad',
+      header: 'Demirbaş',
+      cell: ({ row }) => (
+        <div>
+          <p className="font-medium">{row.original.ad}</p>
+          {row.original.marka_model && <p className="text-sm text-gray-500">{row.original.marka_model}</p>}
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'kategori',
+      header: 'Kategori',
+    },
+    {
+      accessorKey: 'konum',
+      header: 'Konum',
+      cell: ({ row }) => row.original.konum || '-',
+    },
+    {
+      accessorKey: 'alis_bedeli',
+      header: 'Alış Bedeli',
+      cell: ({ row }) => <span className="text-right block">{formatCurrency(row.original.alis_bedeli)}</span>,
+    },
+    {
+      accessorKey: 'guncel_deger',
+      header: 'Güncel Değer',
+      cell: ({ row }) => <span className="text-right block">{formatCurrency(row.original.guncel_deger)}</span>,
+    },
+    {
+      accessorKey: 'durum',
+      header: 'Durum',
+      cell: ({ row }) => (
+        <span className={`px-2 py-1 text-xs rounded-full ${getDurumBadge(row.original.durum)}`}>
+          {row.original.durum}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: 'İşlemler',
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate(`/demirbaslar/${d.id}`); }}
+              className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
+              title="Detay"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate(`/demirbaslar/${d.id}/edit`); }}
+              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+              title="Düzenle"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            {d.is_active === 0 ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleActivate(d.id); }}
+                className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                title="Aktife Al"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(d.id); }}
+                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                title="Pasife Al"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
+  ], [navigate]);
+
   const kategoriler = ['Mobilya', 'Elektronik', 'Araç', 'Makine', 'Ofis Malzemesi', 'Diğer'];
   const durumlar = ['Aktif', 'Bakımda', 'Hurda', 'Satıldı'];
 
@@ -124,16 +225,6 @@ export const DemirbaslarListPage: React.FC = () => {
     const matchDurum = !durumFilter || d.durum === durumFilter;
     return matchSearch && matchKategori && matchDurum;
   });
-
-  const getDurumBadge = (durum?: string) => {
-    switch (durum) {
-      case 'Aktif': return 'bg-green-100 text-green-800';
-      case 'Bakımda': return 'bg-yellow-100 text-yellow-800';
-      case 'Hurda': return 'bg-red-100 text-red-800';
-      case 'Satıldı': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
 
   if (loading) {
     return (
@@ -253,88 +344,22 @@ export const DemirbaslarListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tablo */}
-      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">No</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Demirbaş</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Kategori</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Konum</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">Alış Bedeli</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">Güncel Değer</th>
-              <th className="text-center px-4 py-3 text-sm font-medium text-gray-600">Durum</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">İşlemler</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                  Demirbaş bulunamadı
-                </td>
-              </tr>
-            ) : (
-              filtered.map((d) => (
-                <tr key={d.id} className={`hover:bg-gray-50 ${d.is_active === 0 ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3 text-sm font-mono">{d.demirbas_no}</td>
-                  <td className="px-4 py-3">
-                    <div>
-                      <p className="font-medium">{d.ad}</p>
-                      {d.marka_model && <p className="text-sm text-gray-500">{d.marka_model}</p>}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm">{d.kategori}</td>
-                  <td className="px-4 py-3 text-sm">{d.konum || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-right">{formatCurrency(d.alis_bedeli)}</td>
-                  <td className="px-4 py-3 text-sm text-right">{formatCurrency(d.guncel_deger)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-1 text-xs rounded-full ${getDurumBadge(d.durum)}`}>
-                      {d.durum}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => navigate(`/demirbaslar/${d.id}`)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-                        title="Detay"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => navigate(`/demirbaslar/${d.id}/edit`)}
-                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                        title="Düzenle"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      {d.is_active === 0 ? (
-                        <button
-                          onClick={() => handleActivate(d.id)}
-                          className="p-1.5 text-green-600 hover:bg-green-50 rounded"
-                          title="Aktife Al"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleDelete(d.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                          title="Pasife Al"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Tablo - DataTable ile */}
+      <Card>
+        <CardContent className="p-0">
+          <DataTable
+            columns={columns}
+            data={filtered}
+            loading={loading}
+            onRowClick={(row) => navigate(`/demirbaslar/${row.id}`)}
+            emptyMessage="Demirbaş bulunamadı"
+            showSearch={false}
+            tableId="demirbaslar_list"
+            showColumnToggle={true}
+            defaultColumnVisibility={{}}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 };

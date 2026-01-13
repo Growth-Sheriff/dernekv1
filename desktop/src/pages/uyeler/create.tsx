@@ -2,7 +2,6 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
@@ -11,61 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { FormField, FormSection, FormActions } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { validateTcNo, validateTelefon } from '@/lib/validators';
-
-const uyeSchema = z.object({
-  // Temel Bilgiler
-  uye_no: z.string().optional(),
-  tc_no: z.string()
-    .length(11, 'TC No 11 haneli olmalı')
-    .refine((val) => validateTcNo(val), { message: 'Geçersiz TC kimlik numarası' }),
-  ad: z.string().min(2, 'Ad en az 2 karakter olmalı'),
-  soyad: z.string().min(2, 'Soyad en az 2 karakter olmalı'),
-  uyelik_tipi: z.enum(['Asil', 'Onursal', 'Fahri', 'Kurumsal']).optional(),
-  durum: z.enum(['Aktif', 'Pasif', 'Ayrıldı']),
-  giris_tarihi: z.string().min(1, 'Giriş tarihi zorunlu'),
-  
-  // İletişim
-  telefon: z.string()
-    .optional()
-    .refine((val) => !val || validateTelefon(val), { message: 'Geçerli bir telefon numarası girin' }),
-  telefon2: z.string()
-    .optional()
-    .refine((val) => !val || validateTelefon(val), { message: 'Geçerli bir telefon numarası girin' }),
-  email: z.string().email('Geçerli email giriniz').optional().or(z.literal('')),
-  
-  // Kişisel
-  cinsiyet: z.enum(['Erkek', 'Kadın', '']).optional(),
-  dogum_tarihi: z.string().optional(),
-  dogum_yeri: z.string().optional(),
-  kan_grubu: z.string().optional(),
-  aile_durumu: z.enum(['Bekar', 'Evli', 'Dul', '']).optional(),
-  cocuk_sayisi: z.number().min(0).optional(),
-  
-  // Meslek
-  egitim_durumu: z.string().optional(),
-  meslek: z.string().optional(),
-  is_yeri: z.string().optional(),
-  
-  // Adres
-  il: z.string().optional(),
-  ilce: z.string().optional(),
-  mahalle: z.string().optional(),
-  adres: z.string().optional(),
-  posta_kodu: z.string().optional(),
-  
-  // Aidat
-  ozel_aidat_tutari: z.number().optional(),
-  aidat_indirimi_yuzde: z.number().min(0).max(100).optional(),
-  
-  // Referans
-  referans_uye_id: z.number().optional(),
-  
-  // Notlar
-  notlar: z.string().optional(),
-});
-
-type UyeForm = z.infer<typeof uyeSchema>;
+import { uyeSchema, type UyeForm } from '@/schemas';
 
 export const UyelerCreatePage: React.FC = () => {
   const navigate = useNavigate();

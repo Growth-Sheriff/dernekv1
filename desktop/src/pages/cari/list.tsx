@@ -2,7 +2,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { Plus, Building2, Search, Eye, Pencil, Trash2, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
+import { ColumnDef } from '@tanstack/react-table';
 import { useAuthStore } from '@/store/authStore';
+import { DataTable } from '@/components/common/data-table';
 import { PageHeader } from '@/components/common/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -110,16 +112,6 @@ export const CariListPage: React.FC = () => {
     return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
   };
 
-  const tipler = ['Müşteri', 'Tedarikçi', 'Hem Müşteri Hem Tedarikçi'];
-
-  const filtered = cariler.filter(c => {
-    const matchSearch = c.unvan.toLowerCase().includes(search.toLowerCase()) ||
-                       c.cari_kodu?.toLowerCase().includes(search.toLowerCase()) ||
-                       c.yetkili_kisi?.toLowerCase().includes(search.toLowerCase());
-    const matchTip = !tipFilter || c.tip === tipFilter;
-    return matchSearch && matchTip;
-  });
-
   const getTipBadge = (tip?: string) => {
     switch (tip) {
       case 'Müşteri': return 'bg-blue-100 text-blue-800';
@@ -140,6 +132,109 @@ export const CariListPage: React.FC = () => {
     }
     return { label: 'Denk', value: 0, color: 'text-gray-600' };
   };
+
+  // DataTable columns tanımı
+  const columns: ColumnDef<Cari>[] = React.useMemo(() => [
+    {
+      accessorKey: 'cari_kodu',
+      header: 'Kod',
+      cell: ({ row }) => <span className="font-mono">{row.original.cari_kodu || '-'}</span>,
+    },
+    {
+      accessorKey: 'unvan',
+      header: 'Ünvan',
+      cell: ({ row }) => <p className="font-medium">{row.original.unvan}</p>,
+    },
+    {
+      accessorKey: 'tip',
+      header: 'Tip',
+      cell: ({ row }) => (
+        <span className={`px-2 py-1 text-xs rounded-full ${getTipBadge(row.original.tip)}`}>
+          {row.original.tip}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'yetkili_kisi',
+      header: 'Yetkili',
+      cell: ({ row }) => row.original.yetkili_kisi || '-',
+    },
+    {
+      id: 'iletisim',
+      header: 'İletişim',
+      cell: ({ row }) => (
+        <div>
+          {row.original.telefon && <p>{row.original.telefon}</p>}
+          {row.original.email && <p className="text-gray-500 text-sm">{row.original.email}</p>}
+        </div>
+      ),
+    },
+    {
+      id: 'bakiye',
+      header: 'Bakiye',
+      cell: ({ row }) => {
+        const bakiye = getBakiye(row.original);
+        return (
+          <div className={`text-right ${bakiye.color}`}>
+            <p className="font-medium">{formatCurrency(bakiye.value)}</p>
+            <p className="text-xs">{bakiye.label}</p>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'actions',
+      header: 'İşlemler',
+      cell: ({ row }) => {
+        const c = row.original;
+        return (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate(`/cari/${c.id}`); }}
+              className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
+              title="Detay"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate(`/cari/${c.id}/edit`); }}
+              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+              title="Düzenle"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            {c.is_active === 0 ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleActivate(c.id); }}
+                className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                title="Aktife Al"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
+                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                title="Pasife Al"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
+  ], [navigate]);
+
+  const tipler = ['Müşteri', 'Tedarikçi', 'Hem Müşteri Hem Tedarikçi'];
+
+  const filtered = cariler.filter(c => {
+    const matchSearch = c.unvan.toLowerCase().includes(search.toLowerCase()) ||
+                       c.cari_kodu?.toLowerCase().includes(search.toLowerCase()) ||
+                       c.yetkili_kisi?.toLowerCase().includes(search.toLowerCase());
+    const matchTip = !tipFilter || c.tip === tipFilter;
+    return matchSearch && matchTip;
+  });
 
   if (loading) {
     return (
@@ -249,96 +344,22 @@ export const CariListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tablo */}
-      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Kod</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Ünvan</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Tip</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Yetkili</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">İletişim</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">Bakiye</th>
-              <th className="text-right px-4 py-3 text-sm font-medium text-gray-600">İşlemler</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                  Cari hesap bulunamadı
-                </td>
-              </tr>
-            ) : (
-              filtered.map((c) => {
-                const bakiye = getBakiye(c);
-                return (
-                  <tr key={c.id} className={`hover:bg-gray-50 ${c.is_active === 0 ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3 text-sm font-mono">{c.cari_kodu || '-'}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium">{c.unvan}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs rounded-full ${getTipBadge(c.tip)}`}>
-                        {c.tip}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm">{c.yetkili_kisi || '-'}</td>
-                    <td className="px-4 py-3 text-sm">
-                      <div>
-                        {c.telefon && <p>{c.telefon}</p>}
-                        {c.email && <p className="text-gray-500">{c.email}</p>}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className={bakiye.color}>
-                        <p className="font-medium">{formatCurrency(bakiye.value)}</p>
-                        <p className="text-xs">{bakiye.label}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => navigate(`/cari/${c.id}`)}
-                          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-                          title="Detay"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/cari/${c.id}/edit`)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Düzenle"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        {c.is_active === 0 ? (
-                          <button
-                            onClick={() => handleActivate(c.id)}
-                            className="p-1.5 text-green-600 hover:bg-green-50 rounded"
-                            title="Aktife Al"
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleDelete(c.id)}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                            title="Pasife Al"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Tablo - DataTable ile */}
+      <Card>
+        <CardContent className="p-0">
+          <DataTable
+            columns={columns}
+            data={filtered}
+            loading={loading}
+            onRowClick={(row) => navigate(`/cari/${row.id}`)}
+            emptyMessage="Cari hesap bulunamadı"
+            showSearch={false}
+            tableId="cari_list"
+            showColumnToggle={true}
+            defaultColumnVisibility={{}}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 };

@@ -2,19 +2,10 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '@/store/authStore';
 import { useLicenseStore } from '@/store/licenseStore';
-
-const loginSchema = z.object({
-  email: z.string().email('Geçerli bir email giriniz'),
-  password: z.string().min(6, 'Şifre en az 6 karakter olmalı'),
-  mode: z.enum(['LOCAL', 'ONLINE', 'HYBRID']),
-  rememberMe: z.boolean().optional(),
-});
-
-type LoginForm = z.infer<typeof loginSchema>;
+import { loginSchema, type LoginForm } from '@/schemas';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
