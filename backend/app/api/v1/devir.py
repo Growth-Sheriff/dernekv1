@@ -1,0 +1,81 @@
+"""
+Devir API Routes
+"""
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List
+from uuid import UUID
+
+from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.user import User
+from app.schemas.devir import DevirCreate, DevirUpdate, DevirResponse
+
+router = APIRouter()
+
+
+@router.get("/", response_model=List[DevirResponse])
+async def list_devir(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Devir listesi
+    """
+    # TODO: Implement listing
+    return []
+
+
+@router.post("/", response_model=DevirResponse, status_code=status.HTTP_201_CREATED)
+async def create_devir(
+    data: DevirCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Yeni devir oluştur
+    """
+    # TODO: Implement creation
+    raise HTTPException(status_code=501, detail="Not implemented")
+
+
+@router.get("/{item_id}", response_model=DevirResponse)
+async def get_devir(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Devir detayı
+    """
+    # TODO: Implement retrieval
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.put("/{item_id}", response_model=DevirResponse)
+async def update_devir(
+    item_id: UUID,
+    data: DevirUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Devir güncelle
+    """
+    # TODO: Implement update
+    raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_devir(
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Devir sil
+    """
+    # TODO: Implement deletion
+    raise HTTPException(status_code=404, detail="Not found")

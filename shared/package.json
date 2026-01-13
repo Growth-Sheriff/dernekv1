@@ -1,0 +1,7 @@
+{
+  "name": "@bader/shared",
+  "version": "3.0.0",
+  "description": "Shared types and utilities",
+  "main": "index.ts",
+  "types": "index.ts"
+}

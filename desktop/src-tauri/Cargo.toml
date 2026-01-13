@@ -1,0 +1,24 @@
+[package]
+name = "bader-desktop"
+version = "3.0.0"
+description = "BADER - Dernek Yönetim Sistemi Desktop"
+authors = ["BADER Team"]
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-dialog = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+diesel = { version = "2.1", features = ["sqlite", "r2d2", "chrono"] }
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1.35", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+bcrypt = "0.15"
+sha2 = "0.10"
+regex = "1.10"
+base64 = "0.21"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }

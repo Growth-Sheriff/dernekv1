@@ -1,0 +1,22 @@
+# Cargo Build Configuration
+
+[build]
+# Optimize for size in release builds
+rustflags = ["-C", "strip=symbols"]
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Enable Link Time Optimization
+codegen-units = 1   # Better optimization
+panic = "abort"     # Don't include panic handling code
+strip = true        # Strip symbols
+
+[profile.dev]
+opt-level = 0       # No optimization for faster builds
+
+# Platform-specific settings
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

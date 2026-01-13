@@ -1,0 +1,437 @@
+use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool};
+use diesel::sqlite::SqliteConnection;
+use serde::{Deserialize, Serialize};
+use tauri::State;
+use uuid::Uuid;
+use crate::db::models::{Kasa, Gelir, Gider};
+
+type DbPool = Pool<ConnectionManager<SqliteConnection>>;
+
+#[derive(Debug, Deserialize)]
+pub struct CreateKasaRequest {
+    pub kasa_adi: String,
+    pub para_birimi: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGelirRequest {
+    pub kasa_id: String,
+    pub tarih: String,
+    pub tutar: f64,
+    pub aciklama: Option<String>,
+    pub makbuz_no: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGiderRequest {
+    pub kasa_id: String,
+    pub tarih: String,
+    pub tutar: f64,
+    pub aciklama: Option<String>,
+    pub fatura_no: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VirmanRequest {
+    pub kaynak_kasa_id: String,
+    pub hedef_kasa_id: String,
+    pub tutar: f64,
+    pub aciklama: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct KasaOzet {
+    pub toplam_bakiye: f64,
+    pub toplam_gelir: f64,
+    pub toplam_gider: f64,
+    pub kasa_sayisi: i32,
+}
+
+#[tauri::command]
+pub async fn get_kasalar(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+) -> Result<Vec<Kasa>, String> {
+    use crate::db::schema::kasalar::dsl::*;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let results = kasalar
+        .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_active.eq(true))
+        .order(kasa_adi.asc())
+        .load::<Kasa>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn create_kasa(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    data: CreateKasaRequest,
+) -> Result<Kasa, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let new_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(
+        "INSERT INTO kasalar (id, tenant_id, kasa_adi, bakiye, para_birimi, is_active, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 0.0, ?4, 1, ?5, ?6)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&new_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&data.kasa_adi)
+    .bind::<diesel::sql_types::Text, _>(&data.para_birimi)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let sync_id = Uuid::new_v4().to_string();
+    diesel::sql_query(
+        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
+         VALUES (?1, ?2, 'kasalar', ?3, 'INSERT', '{}', ?4)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&sync_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&new_id)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    use crate::db::schema::kasalar::dsl::*;
+    let result = kasalar
+        .filter(id.eq(&new_id))
+        .first::<Kasa>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_gelirler(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    kasa_id: Option<String>,
+    baslangic_tarih: Option<String>,
+    bitis_tarih: Option<String>,
+    skip: i64,
+    limit: i64,
+) -> Result<Vec<Gelir>, String> {
+    use crate::db::schema::gelirler::dsl::*;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let mut query = gelirler
+        .filter(tenant_id.eq(&tenant_id_param))
+        .into_boxed();
+
+    if let Some(kid) = kasa_id {
+        query = query.filter(kasa_id.eq(kid));
+    }
+
+    if let Some(baslangic) = baslangic_tarih {
+        query = query.filter(tarih.ge(baslangic));
+    }
+
+    if let Some(bitis) = bitis_tarih {
+        query = query.filter(tarih.le(bitis));
+    }
+
+    let results = query
+        .order(tarih.desc())
+        .offset(skip)
+        .limit(limit)
+        .load::<Gelir>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn create_gelir(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    data: CreateGelirRequest,
+) -> Result<Gelir, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let new_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(
+        "INSERT INTO gelirler (id, tenant_id, kasa_id, tarih, tutar, aciklama, makbuz_no, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&new_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&data.tarih)
+    .bind::<diesel::sql_types::Double, _>(data.tutar)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aciklama)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.makbuz_no)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    diesel::sql_query(
+        "UPDATE kasalar SET bakiye = bakiye + ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4"
+    )
+    .bind::<diesel::sql_types::Double, _>(data.tutar)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let sync_id = Uuid::new_v4().to_string();
+    diesel::sql_query(
+        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
+         VALUES (?1, ?2, 'gelirler', ?3, 'INSERT', '{}', ?4)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&sync_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&new_id)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    use crate::db::schema::gelirler::dsl::*;
+    let result = gelirler
+        .filter(id.eq(&new_id))
+        .first::<Gelir>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_giderler(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    kasa_id: Option<String>,
+    baslangic_tarih: Option<String>,
+    bitis_tarih: Option<String>,
+    skip: i64,
+    limit: i64,
+) -> Result<Vec<Gider>, String> {
+    use crate::db::schema::giderler::dsl::*;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let mut query = giderler
+        .filter(tenant_id.eq(&tenant_id_param))
+        .into_boxed();
+
+    if let Some(kid) = kasa_id {
+        query = query.filter(kasa_id.eq(kid));
+    }
+
+    if let Some(baslangic) = baslangic_tarih {
+        query = query.filter(tarih.ge(baslangic));
+    }
+
+    if let Some(bitis) = bitis_tarih {
+        query = query.filter(tarih.le(bitis));
+    }
+
+    let results = query
+        .order(tarih.desc())
+        .offset(skip)
+        .limit(limit)
+        .load::<Gider>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn create_gider(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    data: CreateGiderRequest,
+) -> Result<Gider, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let new_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(
+        "INSERT INTO giderler (id, tenant_id, kasa_id, tarih, tutar, aciklama, fatura_no, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&new_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&data.tarih)
+    .bind::<diesel::sql_types::Double, _>(data.tutar)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aciklama)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.fatura_no)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    diesel::sql_query(
+        "UPDATE kasalar SET bakiye = bakiye - ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4"
+    )
+    .bind::<diesel::sql_types::Double, _>(data.tutar)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let sync_id = Uuid::new_v4().to_string();
+    diesel::sql_query(
+        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
+         VALUES (?1, ?2, 'giderler', ?3, 'INSERT', '{}', ?4)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&sync_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&new_id)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    use crate::db::schema::giderler::dsl::*;
+    let result = giderler
+        .filter(id.eq(&new_id))
+        .first::<Gider>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn virman_yap(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    virman: VirmanRequest,
+) -> Result<(), String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(
+        "UPDATE kasalar SET bakiye = bakiye - ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4"
+    )
+    .bind::<diesel::sql_types::Double, _>(virman.tutar)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&virman.kaynak_kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    diesel::sql_query(
+        "UPDATE kasalar SET bakiye = bakiye + ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4"
+    )
+    .bind::<diesel::sql_types::Double, _>(virman.tutar)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&virman.hedef_kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let gider_id = Uuid::new_v4().to_string();
+    let aciklama_kaynak = format!("Virman - Hedef: {}", virman.hedef_kasa_id);
+    diesel::sql_query(
+        "INSERT INTO giderler (id, tenant_id, kasa_id, tarih, tutar, aciklama, created_at, updated_at)
+         VALUES (?1, ?2, ?3, date('now'), ?4, ?5, ?6, ?7)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&gider_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&virman.kaynak_kasa_id)
+    .bind::<diesel::sql_types::Double, _>(virman.tutar)
+    .bind::<diesel::sql_types::Text, _>(&aciklama_kaynak)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let gelir_id = Uuid::new_v4().to_string();
+    let aciklama_hedef = format!("Virman - Kaynak: {}", virman.kaynak_kasa_id);
+    diesel::sql_query(
+        "INSERT INTO gelirler (id, tenant_id, kasa_id, tarih, tutar, aciklama, created_at, updated_at)
+         VALUES (?1, ?2, ?3, date('now'), ?4, ?5, ?6, ?7)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&gelir_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .bind::<diesel::sql_types::Text, _>(&virman.hedef_kasa_id)
+    .bind::<diesel::sql_types::Double, _>(virman.tutar)
+    .bind::<diesel::sql_types::Text, _>(&aciklama_hedef)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_kasa_ozet(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+) -> Result<KasaOzet, String> {
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let toplam_bakiye: f64 = diesel::sql_query(
+        "SELECT COALESCE(SUM(bakiye), 0.0) as total FROM kasalar WHERE tenant_id = ?1 AND is_active = 1"
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .get_result::<(f64,)>(&mut conn)
+    .map(|r| r.0)
+    .unwrap_or(0.0);
+
+    let toplam_gelir: f64 = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM gelirler WHERE tenant_id = ?1"
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .get_result::<(f64,)>(&mut conn)
+    .map(|r| r.0)
+    .unwrap_or(0.0);
+
+    let toplam_gider: f64 = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM giderler WHERE tenant_id = ?1"
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .get_result::<(f64,)>(&mut conn)
+    .map(|r| r.0)
+    .unwrap_or(0.0);
+
+    let kasa_sayisi: i32 = diesel::sql_query(
+        "SELECT COUNT(*) as total FROM kasalar WHERE tenant_id = ?1 AND is_active = 1"
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id)
+    .get_result::<(i32,)>(&mut conn)
+    .map(|r| r.0)
+    .unwrap_or(0);
+
+    Ok(KasaOzet {
+        toplam_bakiye,
+        toplam_gelir,
+        toplam_gider,
+        kasa_sayisi,
+    })
+}
