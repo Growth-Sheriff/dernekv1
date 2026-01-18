@@ -258,7 +258,7 @@ export const GelirlerPage: React.FC = () => {
     try {
       await invoke('delete_gelir', {
         tenantIdParam: tenant.id,
-        gelirId: id,
+        id: id,
       });
       
       alert('Gelir başarıyla silindi');

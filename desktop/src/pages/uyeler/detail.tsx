@@ -173,51 +173,35 @@ export const UyelerDetailPage: React.FC = () => {
 
     const loadGelirler = async () => {
       try {
-        const result = await invoke<UyeGelir[]>('get_gelirler_by_uye', {
+        // Tüm gelirleri çekip üyeye göre filtrele
+        const allGelirler = await invoke<any[]>('get_gelirler', {
           tenantIdParam: tenant.id,
-          uyeId: id,
+          baslangicTarih: null,
+          bitisTarih: null,
+          gelirTuruId: null,
         });
-        setGelirler(result);
+        setGelirler(allGelirler.filter(g => g.uye_id === id));
       } catch (error) {
         console.error('Gelirler yüklenemedi:', error);
-        // Fallback: Tüm gelirleri çekip filtrele
-        try {
-          const allGelirler = await invoke<any[]>('get_gelirler', {
-            tenantIdParam: tenant.id,
-            baslangicTarih: null,
-            bitisTarih: null,
-            gelirTuruId: null,
-          });
-          setGelirler(allGelirler.filter(g => g.uye_id === id));
-        } catch (e) {
-          console.error('Gelirler yüklenemedi (fallback):', e);
-        }
+        setGelirler([]);
       }
     };
 
     const loadGiderler = async () => {
       try {
-        const result = await invoke<UyeGider[]>('get_giderler_by_uye', {
+        // Tüm giderleri çekip üyeye göre filtrele
+        const allGiderler = await invoke<any[]>('get_giderler', {
           tenantIdParam: tenant.id,
-          uyeId: id,
+          baslangicTarih: null,
+          bitisTarih: null,
+          giderTuruId: null,
+          skip: 0,
+          limit: 1000,
         });
-        setGiderler(result);
+        setGiderler(allGiderler.filter(g => g.uye_id === id));
       } catch (error) {
         console.error('Giderler yüklenemedi:', error);
-        // Fallback: Tüm giderleri çekip filtrele
-        try {
-          const allGiderler = await invoke<any[]>('get_giderler', {
-            tenantIdParam: tenant.id,
-            baslangicTarih: null,
-            bitisTarih: null,
-            giderTuruId: null,
-            skip: 0,
-            limit: 1000,
-          });
-          setGiderler(allGiderler.filter(g => g.uye_id === id));
-        } catch (e) {
-          console.error('Giderler yüklenemedi (fallback):', e);
-        }
+        setGiderler([]);
       }
     };
 
