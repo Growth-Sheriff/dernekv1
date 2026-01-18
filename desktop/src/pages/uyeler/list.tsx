@@ -19,6 +19,8 @@ interface Uye {
   giris_tarihi: string;
   durum: string;
   is_active?: boolean;
+  referans_uye_id?: string;
+  uyelik_tipi?: string;
 }
 
 export const UyelerListPage: React.FC = () => {
@@ -683,6 +685,25 @@ export const UyelerListPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Referans Üye */}
+            <div className="border-b pb-4">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Referans Üye</h3>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Referans Üye Seçin</label>
+                <select
+                  value={formData.referans_uye_id}
+                  onChange={(e) => setFormData({ ...formData, referans_uye_id: e.target.value })}
+                  className="input-macos"
+                >
+                  <option value="">Referans üye yok</option>
+                  {uyeler.map(u => (
+                    <option key={u.id} value={u.id}>{u.ad} {u.soyad} ({u.tc_no})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Bu üyeyi derneğe kim tavsiye etti?</p>
+              </div>
+            </div>
+
             {/* Notlar */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notlar</label>
@@ -1074,13 +1095,13 @@ export const UyelerListPage: React.FC = () => {
                     Ad Soyad
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Üelik Tipi
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Telefon
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Giriş Tarihi
+                    Referans Üye
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Durum
@@ -1114,19 +1135,32 @@ export const UyelerListPage: React.FC = () => {
                       className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
                       onClick={() => navigate(`/uyeler/${uye.id}`)}
                     >
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded ${
+                        uye.uyelik_tipi === 'Asil' ? 'bg-blue-100 text-blue-700' :
+                        uye.uyelik_tipi === 'Onursal' ? 'bg-purple-100 text-purple-700' :
+                        uye.uyelik_tipi === 'Fahri' ? 'bg-green-100 text-green-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {uye.uyelik_tipi || 'Asil'}
+                      </span>
+                    </td>
+                    <td 
+                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
+                      onClick={() => navigate(`/uyeler/${uye.id}`)}
+                    >
                       {uye.telefon || '-'}
                     </td>
                     <td 
                       className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
                       onClick={() => navigate(`/uyeler/${uye.id}`)}
                     >
-                      {uye.email || '-'}
-                    </td>
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      {new Date(uye.giris_tarihi).toLocaleDateString('tr-TR')}
+                      {uye.referans_uye_id ? (
+                        <span className="inline-flex items-center px-2 py-1 bg-amber-50 text-amber-700 rounded text-xs font-medium">
+                          👤 {uyeler.find(u => u.id === uye.referans_uye_id)?.ad} {uyeler.find(u => u.id === uye.referans_uye_id)?.soyad || 'Referans'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
                     </td>
                     <td 
                       className="px-6 py-4 whitespace-nowrap cursor-pointer"

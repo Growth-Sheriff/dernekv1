@@ -16,6 +16,7 @@ interface Gider {
   tutar: number;
   aciklama?: string;
   fatura_no?: string;
+  uye_id?: string;
   created_at: string;
 }
 
@@ -824,6 +825,7 @@ export const GiderlerPage: React.FC = () => {
             <thead className="bg-gray-50/50 border-b border-gray-100">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Tarih</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Üye</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Tutar</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Açıklama</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Fatura No</th>
@@ -833,7 +835,7 @@ export const GiderlerPage: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-16 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
                     <div className="flex items-center justify-center gap-2">
                       <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                       <span>Yükleniyor...</span>
@@ -842,7 +844,7 @@ export const GiderlerPage: React.FC = () => {
                 </tr>
               ) : giderler.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-16 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
                     <div className="flex flex-col items-center gap-2">
                       <svg className="w-12 h-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -860,6 +862,15 @@ export const GiderlerPage: React.FC = () => {
                   >
                     <td className="px-6 py-4 text-sm font-medium text-gray-900">
                       {new Date(gider.tarih).toLocaleDateString('tr-TR')}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-700">
+                      {gider.uye_id ? (
+                        <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
+                          {uyeler.find(u => u.id === gider.uye_id)?.ad} {uyeler.find(u => u.id === gider.uye_id)?.soyad || 'Üye'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-red-600">

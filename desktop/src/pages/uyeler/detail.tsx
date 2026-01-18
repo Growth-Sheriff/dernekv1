@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowLeft, Edit, Trash2, Users, Plus, X, Pencil, Wallet } from 'lucide-react';
+import { ArrowLeft, Edit, Trash2, Users, Plus, X, Pencil, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -57,6 +57,23 @@ interface AidatTakip {
   created_at: string;
 }
 
+interface UyeGelir {
+  id: string;
+  tarih: string;
+  tutar: number;
+  aciklama?: string;
+  makbuz_no?: string;
+  aidat_id?: string;
+}
+
+interface UyeGider {
+  id: string;
+  tarih: string;
+  tutar: number;
+  aciklama?: string;
+  fatura_no?: string;
+}
+
 const aylar = [
   { value: 1, label: 'Ocak' },
   { value: 2, label: 'Şubat' },
@@ -80,6 +97,8 @@ export const UyelerDetailPage: React.FC = () => {
   const [uye, setUye] = React.useState<Uye | null>(null);
   const [aileUyeleri, setAileUyeleri] = React.useState<AileUyesi[]>([]);
   const [aidatlar, setAidatlar] = React.useState<AidatTakip[]>([]);
+  const [gelirler, setGelirler] = React.useState<UyeGelir[]>([]);
+  const [giderler, setGiderler] = React.useState<UyeGider[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [showAileForm, setShowAileForm] = React.useState(false);
   
@@ -152,9 +171,61 @@ export const UyelerDetailPage: React.FC = () => {
       }
     };
 
+    const loadGelirler = async () => {
+      try {
+        const result = await invoke<UyeGelir[]>('get_gelirler_by_uye', {
+          tenantIdParam: tenant.id,
+          uyeId: id,
+        });
+        setGelirler(result);
+      } catch (error) {
+        console.error('Gelirler yüklenemedi:', error);
+        // Fallback: Tüm gelirleri çekip filtrele
+        try {
+          const allGelirler = await invoke<any[]>('get_gelirler', {
+            tenantIdParam: tenant.id,
+            baslangicTarih: null,
+            bitisTarih: null,
+            gelirTuruId: null,
+          });
+          setGelirler(allGelirler.filter(g => g.uye_id === id));
+        } catch (e) {
+          console.error('Gelirler yüklenemedi (fallback):', e);
+        }
+      }
+    };
+
+    const loadGiderler = async () => {
+      try {
+        const result = await invoke<UyeGider[]>('get_giderler_by_uye', {
+          tenantIdParam: tenant.id,
+          uyeId: id,
+        });
+        setGiderler(result);
+      } catch (error) {
+        console.error('Giderler yüklenemedi:', error);
+        // Fallback: Tüm giderleri çekip filtrele
+        try {
+          const allGiderler = await invoke<any[]>('get_giderler', {
+            tenantIdParam: tenant.id,
+            baslangicTarih: null,
+            bitisTarih: null,
+            giderTuruId: null,
+            skip: 0,
+            limit: 1000,
+          });
+          setGiderler(allGiderler.filter(g => g.uye_id === id));
+        } catch (e) {
+          console.error('Giderler yüklenemedi (fallback):', e);
+        }
+      }
+    };
+
     loadUye();
     loadAileUyeleri();
     loadAidatlar();
+    loadGelirler();
+    loadGiderler();
   }, [tenant, id]);
 
   const handleDelete = async () => {
@@ -623,6 +694,110 @@ export const UyelerDetailPage: React.FC = () => {
                           : '-'
                         }
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Gelir Geçmişi */}
+      <div className="card-macos">
+        <div className="p-6 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <TrendingUp className="w-5 h-5 text-green-600" />
+            <h2 className="text-xl font-semibold text-gray-900">Gelir Geçmişi</h2>
+            <span className="ml-auto text-sm text-gray-500">
+              Toplam: {gelirler.reduce((sum, g) => sum + g.tutar, 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+            </span>
+          </div>
+        </div>
+        
+        <div className="p-6">
+          {gelirler.length === 0 ? (
+            <div className="text-center py-8">
+              <TrendingUp className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">Bu üyeyle ilişkili gelir kaydı yok</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 font-medium text-gray-600">Tarih</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-600">Tutar</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-600">Açıklama</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-600">Makbuz No</th>
+                    <th className="text-center py-3 px-4 font-medium text-gray-600">Kaynak</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gelirler.map((gelir) => (
+                    <tr key={gelir.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-3 px-4">{new Date(gelir.tarih).toLocaleDateString('tr-TR')}</td>
+                      <td className="py-3 px-4 text-right text-green-600 font-medium">
+                        +{gelir.tutar.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                      </td>
+                      <td className="py-3 px-4 text-gray-700">{gelir.aciklama || '-'}</td>
+                      <td className="py-3 px-4 text-gray-500">{gelir.makbuz_no || '-'}</td>
+                      <td className="py-3 px-4 text-center">
+                        {gelir.aidat_id ? (
+                          <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                            💰 Aidat
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Gider Geçmişi */}
+      <div className="card-macos">
+        <div className="p-6 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <TrendingDown className="w-5 h-5 text-red-600" />
+            <h2 className="text-xl font-semibold text-gray-900">Gider Geçmişi</h2>
+            <span className="ml-auto text-sm text-gray-500">
+              Toplam: {giderler.reduce((sum, g) => sum + g.tutar, 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+            </span>
+          </div>
+        </div>
+        
+        <div className="p-6">
+          {giderler.length === 0 ? (
+            <div className="text-center py-8">
+              <TrendingDown className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">Bu üyeyle ilişkili gider kaydı yok</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="text-left py-3 px-4 font-medium text-gray-600">Tarih</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-600">Tutar</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-600">Açıklama</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-600">Fatura No</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {giderler.map((gider) => (
+                    <tr key={gider.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-3 px-4">{new Date(gider.tarih).toLocaleDateString('tr-TR')}</td>
+                      <td className="py-3 px-4 text-right text-red-600 font-medium">
+                        -{gider.tutar.toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
+                      </td>
+                      <td className="py-3 px-4 text-gray-700">{gider.aciklama || '-'}</td>
+                      <td className="py-3 px-4 text-gray-500">{gider.fatura_no || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

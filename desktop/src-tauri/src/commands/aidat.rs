@@ -8,6 +8,13 @@ use crate::db::models::AidatTakip;
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
+// Tutar sorgusundan dönecek row için struct
+#[derive(Debug, QueryableByName)]
+pub struct TutarRow {
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub tutar: f64,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateAidatRequest {
     pub uye_id: String,
@@ -450,8 +457,24 @@ pub async fn toplu_aidat_olustur(
             let aidat_id = Uuid::new_v4().to_string();
             let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
             
-            // Üyenin özel aidat tutarı varsa onu kullan, yoksa varsayılanı kullan
-            let uye_aidat_tutari = uye.ozel_aidat_tutari.unwrap_or(data.varsayilan_tutar);
+            // Öncelik sırası: 1. Üyenin özel aidat tutarı, 2. Üyelik tipine göre tanım, 3. Varsayılan tutar
+            let uye_aidat_tutari = if let Some(ozel_tutar) = uye.ozel_aidat_tutari {
+                ozel_tutar
+            } else {
+                // Üyelik tipine göre aidat tanımından tutar çek
+                let uye_tipi = uye.uyelik_tipi.clone().unwrap_or_else(|| "Asil".to_string());
+                let tanim_tutar: Option<f64> = diesel::sql_query(
+                    "SELECT tutar FROM aidat_tanimlari WHERE tenant_id = ?1 AND yil = ?2 AND uye_turu = ?3 AND is_active = 1"
+                )
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .bind::<diesel::sql_types::Integer, _>(data.yil)
+                .bind::<diesel::sql_types::Text, _>(&uye_tipi)
+                .get_result::<TutarRow>(&mut conn)
+                .ok()
+                .map(|r| r.tutar);
+                
+                tanim_tutar.unwrap_or(data.varsayilan_tutar)
+            };
             
             // Transaction içinde aidat + gelir oluştur
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
