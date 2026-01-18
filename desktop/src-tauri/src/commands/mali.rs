@@ -59,6 +59,9 @@ pub struct CreateGelirRequest {
     pub belge_no: Option<String>,
     pub tahsil_eden: Option<String>,
     pub belge_id: Option<String>,
+    pub uye_id: Option<String>,        // İlgili üye
+    pub aidat_id: Option<String>,      // Aidat bağlantısı
+    pub ait_oldugu_yil: Option<i32>,   // Ait olduğu yıl
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +77,9 @@ pub struct UpdateGelirRequest {
     pub belge_no: Option<String>,
     pub tahsil_eden: Option<String>,
     pub belge_id: Option<String>,
+    pub uye_id: Option<String>,        // İlgili üye
+    pub aidat_id: Option<String>,      // Aidat bağlantısı
+    pub ait_oldugu_yil: Option<i32>,   // Ait olduğu yıl
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +95,8 @@ pub struct CreateGiderRequest {
     pub odeyen: Option<String>,
     pub notlar: Option<String>,
     pub belge_id: Option<String>,
+    pub uye_id: Option<String>,         // Opsiyonel ilgili üye
+    pub demirbas_id: Option<String>,    // Demirbaş bağlantısı
 }
 
 #[derive(Debug, Deserialize)]
@@ -295,8 +303,8 @@ pub async fn create_gelir(
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
         diesel::sql_query(
-            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, gelir_turu_id, tarih, tutar, aciklama, makbuz_no, alt_kategori, tahakkuk_durumu, belge_no, tahsil_eden, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, gelir_turu_id, tarih, tutar, aciklama, makbuz_no, alt_kategori, tahakkuk_durumu, belge_no, tahsil_eden, uye_id, aidat_id, ait_oldugu_yil, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
         )
         .bind::<diesel::sql_types::Text, _>(&new_id)
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -311,6 +319,9 @@ pub async fn create_gelir(
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.tahakkuk_durumu)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.belge_no)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.tahsil_eden)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.uye_id)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aidat_id)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Integer>, _>(&data.ait_oldugu_yil)
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&now)
         .execute(conn)?;

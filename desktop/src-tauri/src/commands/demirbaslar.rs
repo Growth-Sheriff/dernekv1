@@ -351,3 +351,133 @@ pub fn get_demirbas_ozet(
         bakimda,
     })
 }
+// ============================================================================
+// TOPLU DEMİRBAŞ GİRİŞİ
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct TopluDemirbasInput {
+    pub ad: String,
+    pub adet: i32,  // Kaç adet oluşturulacak
+    pub kategori: Option<String>,
+    pub marka_model: Option<String>,
+    pub alis_tarihi: Option<String>,
+    pub alis_bedeli: Option<f64>,  // Birim fiyat veya toplam
+    pub birim_fiyat_mi: bool,      // true: birim fiyat, false: toplam fiyat
+    pub konum: Option<String>,
+    pub sorumlu_uye_id: Option<String>,
+    pub tedarikci: Option<String>,
+    pub fatura_no: Option<String>,
+    pub notlar: Option<String>,
+    pub gider_id: Option<String>,  // Gider entegrasyonu
+}
+
+#[derive(Debug, Serialize)]
+pub struct TopluDemirbasResult {
+    pub success: bool,
+    pub olusturulan_adet: i32,
+    pub demirbas_idler: Vec<String>,
+    pub ana_demirbas_id: Option<String>,
+    pub mesaj: String,
+}
+
+/// Toplu demirbaş girişi (örn: 100 adet sandalye)
+#[tauri::command]
+pub fn toplu_demirbas_olustur(
+    state: State<AppState>,
+    tenant_id_param: String,
+    data: TopluDemirbasInput,
+) -> Result<TopluDemirbasResult, String> {
+    if data.adet <= 0 {
+        return Err("Adet 0'dan büyük olmalıdır!".to_string());
+    }
+    if data.adet > 1000 {
+        return Err("Tek seferde en fazla 1000 adet girilebilir!".to_string());
+    }
+
+    let now = Utc::now().naive_utc().to_string();
+    let kategori = data.kategori.unwrap_or_else(|| "Diğer".to_string());
+    
+    // Birim fiyat hesapla
+    let birim_fiyat = if let Some(bedel) = data.alis_bedeli {
+        if data.birim_fiyat_mi {
+            bedel
+        } else {
+            bedel / data.adet as f64
+        }
+    } else {
+        0.0
+    };
+
+    let db = state.db.lock().unwrap();
+    let pool = db.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // Mevcut demirbaş sayısını al (seri no için)
+    let count_result = diesel::sql_query(
+        "SELECT COUNT(*) as count FROM demirbaslar WHERE tenant_id = ?1"
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<CountResult>(&mut conn)
+    .map_err(|e| e.to_string())?;
+    
+    let mut mevcut_sayi = count_result.count;
+    let mut olusturulan_idler: Vec<String> = Vec::new();
+    let ana_demirbas_id = if data.adet > 1 { Some(Uuid::new_v4().to_string()) } else { None };
+
+    for i in 0..data.adet {
+        mevcut_sayi += 1;
+        let new_id = Uuid::new_v4().to_string();
+        let demirbas_no = format!("DMB-{:04}", mevcut_sayi);
+        let seri_no = if data.adet > 1 {
+            Some(format!("{}-{:03}", demirbas_no, i + 1))
+        } else {
+            None
+        };
+        
+        diesel::sql_query(
+            "INSERT INTO demirbaslar (
+                id, tenant_id, demirbas_no, ad, kategori, marka_model, seri_no, 
+                alis_tarihi, alis_bedeli, amortisman_suresi, amortisman_turu, guncel_deger, 
+                konum, sorumlu_uye_id, durum, fatura_no, tedarikci, notlar, 
+                gider_id, adet, ana_demirbas_id, is_active, created_at, updated_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, 
+                ?8, ?9, 5, 'Doğrusal', ?10, 
+                ?11, ?12, 'Aktif', ?13, ?14, ?15, 
+                ?16, 1, ?17, 1, ?18, ?19
+            )"
+        )
+        .bind::<diesel::sql_types::Text, _>(&new_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&demirbas_no)
+        .bind::<diesel::sql_types::Text, _>(&data.ad)
+        .bind::<diesel::sql_types::Text, _>(&kategori)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.marka_model)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&seri_no)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.alis_tarihi)
+        .bind::<diesel::sql_types::Double, _>(birim_fiyat)
+        .bind::<diesel::sql_types::Double, _>(birim_fiyat)  // guncel_deger
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.konum)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.sorumlu_uye_id)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.fatura_no)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.tedarikci)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.gider_id)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&ana_demirbas_id)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(&mut conn)
+        .map_err(|e| format!("Demirbaş #{} oluşturulamadı: {}", i + 1, e))?;
+
+        olusturulan_idler.push(new_id);
+    }
+
+    Ok(TopluDemirbasResult {
+        success: true,
+        olusturulan_adet: data.adet,
+        demirbas_idler: olusturulan_idler,
+        ana_demirbas_id,
+        mesaj: format!("{} adet '{}' demirbaşı oluşturuldu", data.adet, data.ad),
+    })
+}

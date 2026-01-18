@@ -26,6 +26,12 @@ interface CokluYilOdemeRequest {
   kasa_id: string;
 }
 
+interface Uye {
+  id: string;
+  uye_no: string;
+  ad_soyad: string;
+}
+
 const AidatTopluIslemlerPage: React.FC = () => {
   const tenant = useAuthStore((state) => state.tenant);
   const [activeTab, setActiveTab] = useState<'toplu' | 'coklu'>('toplu');
@@ -33,6 +39,7 @@ const AidatTopluIslemlerPage: React.FC = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [kasalar, setKasalar] = useState<any[]>([]);
+  const [uyeler, setUyeler] = useState<Uye[]>([]);
 
   // Toplu Aidat Form
   const [topluForm, setTopluForm] = useState<TopluAidatRequest>({
@@ -72,6 +79,24 @@ const AidatTopluIslemlerPage: React.FC = () => {
       }
     };
     loadKasalar();
+  }, [tenant]);
+
+  // Üyeleri yükle
+  useEffect(() => {
+    if (!tenant) return;
+    const loadUyeler = async () => {
+      try {
+        const result = await invoke<Uye[]>('get_uyeler', {
+          tenantIdParam: tenant.id,
+          skip: 0,
+          limit: 1000,
+        });
+        setUyeler(result);
+      } catch (error) {
+        console.error('Üyeler yüklenemedi:', error);
+      }
+    };
+    loadUyeler();
   }, [tenant]);
 
   const handleTopluAidatOlustur = async () => {
@@ -217,7 +242,7 @@ const AidatTopluIslemlerPage: React.FC = () => {
                 }
               />
               <p className="text-xs text-gray-500 mt-1">
-                Bu tutar tüm üyeler için kullanılacaktır
+                Üyenin özel aidat tutarı tanımlıysa o tutar kullanılır, yoksa bu varsayılan tutar uygulanır
               </p>
             </div>
 
@@ -292,15 +317,22 @@ const AidatTopluIslemlerPage: React.FC = () => {
 
           <div className="space-y-4 max-w-md">
             <div>
-              <Label htmlFor="uye">Üye ID *</Label>
-              <Input
+              <Label htmlFor="uye">Üye Seçimi *</Label>
+              <select
                 id="uye"
                 value={cokluForm.uye_id}
                 onChange={(e) =>
                   setCokluForm({ ...cokluForm, uye_id: e.target.value })
                 }
-                placeholder="Üye ID'sini girin"
-              />
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Üye Seçiniz...</option>
+                {uyeler.map((uye) => (
+                  <option key={uye.id} value={uye.id}>
+                    {uye.uye_no} - {uye.ad_soyad}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

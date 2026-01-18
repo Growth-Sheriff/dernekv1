@@ -15,6 +15,7 @@ pub struct CreateAidatRequest {
     pub ay: i32,
     pub tutar: f64,
     pub notlar: Option<String>,
+    pub kasa_id: Option<String>,  // Aidat oluştururken kasa belirle
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +26,7 @@ pub struct OdemeRequest {
     pub banka_sube: Option<String>,
     pub dekont_no: Option<String>,
     pub aciklama: Option<String>,
+    pub kasa_id: Option<String>,  // Ödeme kasası
 }
 
 #[derive(Debug, Serialize)]
@@ -34,6 +36,48 @@ pub struct AidatOzet {
     pub toplam_kalan: f64,
     pub odenen_adet: i32,
     pub geciken_adet: i32,
+}
+
+// Aidat + Üye bilgisi birlikte
+#[derive(Debug, Serialize, QueryableByName)]
+pub struct AidatWithUye {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub tenant_id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub uye_id: String,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub yil: i32,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub ay: i32,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub tutar: f64,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub odenen: f64,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+    pub kalan: Option<f64>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub odeme_tarihi: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub durum: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Integer>)]
+    pub gecikme_gun: Option<i32>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+    pub gecikme_faiz: Option<f64>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub notlar: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub kasa_id: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub created_at: String,
+    // Üye bilgileri
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub uye_no: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub uye_ad_soyad: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub uye_telefon: Option<String>,
 }
 
 #[derive(QueryableByName)]
@@ -94,6 +138,67 @@ pub async fn get_aidat_takip(
         .offset(skip)
         .limit(limit)
         .load::<AidatTakip>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+/// Aidat listesi üye bilgileriyle birlikte
+#[tauri::command]
+pub async fn get_aidat_takip_with_uye(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    filter_uye_id: Option<String>,
+    filter_yil: Option<i32>,
+    filter_ay: Option<i32>,
+    filter_durum: Option<String>,
+    skip: i64,
+    limit: i64,
+) -> Result<Vec<AidatWithUye>, String> {
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // Build dynamic WHERE clause with inline values for optional params
+    let mut where_clauses = vec!["a.tenant_id = ?1".to_string()];
+    
+    if let Some(ref uid) = filter_uye_id {
+        where_clauses.push(format!("a.uye_id = '{}'", uid.replace("'", "''")));
+    }
+    if let Some(y) = filter_yil {
+        where_clauses.push(format!("a.yil = {}", y));
+    }
+    if let Some(a) = filter_ay {
+        where_clauses.push(format!("a.ay = {}", a));
+    }
+    if let Some(ref d) = filter_durum {
+        where_clauses.push(format!("a.durum = '{}'", d.replace("'", "''")));
+    }
+
+    let where_sql = where_clauses.join(" AND ");
+    
+    let query = format!(
+        "SELECT 
+            a.id, a.tenant_id, a.uye_id, a.yil, a.ay, a.tutar, a.odenen, a.kalan,
+            a.odeme_tarihi, a.durum, a.gecikme_gun, a.gecikme_faiz, a.notlar, a.kasa_id,
+            a.created_at,
+            u.uye_no, COALESCE(u.ad || ' ' || u.soyad, u.ad_soyad) as uye_ad_soyad, u.telefon as uye_telefon
+         FROM aidat_takip a
+         LEFT JOIN uyeler u ON u.id = a.uye_id
+         WHERE {}
+         ORDER BY a.yil DESC, a.ay DESC
+         LIMIT ?2 OFFSET ?3",
+        where_sql
+    );
+
+    let results = diesel::sql_query(&query)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::BigInt, _>(limit)
+        .bind::<diesel::sql_types::BigInt, _>(skip)
+        .load::<AidatWithUye>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     Ok(results)
@@ -345,6 +450,9 @@ pub async fn toplu_aidat_olustur(
             let aidat_id = Uuid::new_v4().to_string();
             let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
             
+            // Üyenin özel aidat tutarı varsa onu kullan, yoksa varsayılanı kullan
+            let uye_aidat_tutari = uye.ozel_aidat_tutari.unwrap_or(data.varsayilan_tutar);
+            
             // Transaction içinde aidat + gelir oluştur
             conn.transaction::<_, diesel::result::Error, _>(|conn| {
                 // Aidat kaydı oluştur
@@ -360,9 +468,9 @@ pub async fn toplu_aidat_olustur(
                 .bind::<diesel::sql_types::Text, _>(&uye.id)
                 .bind::<diesel::sql_types::Integer, _>(data.yil)
                 .bind::<diesel::sql_types::Integer, _>(1)
-                .bind::<diesel::sql_types::Double, _>(data.varsayilan_tutar)
+                .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
                 .bind::<diesel::sql_types::Double, _>(0.0)
-                .bind::<diesel::sql_types::Double, _>(data.varsayilan_tutar)
+                .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
                 .bind::<diesel::sql_types::Text, _>("beklemede")
                 .bind::<diesel::sql_types::Integer, _>(0)
                 .bind::<diesel::sql_types::Double, _>(0.0)
@@ -376,7 +484,7 @@ pub async fn toplu_aidat_olustur(
             }).map_err(|e| format!("Aidat oluşturulamadı: {}", e))?;
 
             olusturulan += 1;
-            toplam += data.varsayilan_tutar;
+            toplam += uye_aidat_tutari;
         }
     }
 

@@ -11,14 +11,28 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
   const setRememberMe = useAuthStore((state) => state.setRememberMe);
+  const saveCredentials = useAuthStore((state) => state.saveCredentials);
+  const savedCredentials = useAuthStore((state) => state.savedCredentials);
   const setMode = useLicenseStore((state) => state.setMode);
   
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginForm>({
+  const { register, handleSubmit, formState: { errors, isSubmitting }, setValue } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
       mode: 'LOCAL',
+      email: savedCredentials?.email || '',
+      password: savedCredentials?.password || '',
+      rememberMe: !!savedCredentials,
     },
   });
+
+  // Kayıtlı credentials varsa form'a yükle
+  React.useEffect(() => {
+    if (savedCredentials) {
+      setValue('email', savedCredentials.email);
+      setValue('password', savedCredentials.password);
+      setValue('rememberMe', true);
+    }
+  }, [savedCredentials, setValue]);
 
   // İlk açılışta tenant kontrolü yap
   React.useEffect(() => {
@@ -61,8 +75,11 @@ export const LoginPage: React.FC = () => {
           password: data.password,
         });
         
-        // Beni Hatırla ayarını kaydet
+        // Beni Hatırla ayarını kaydet + şifreyi de kaydet
         setRememberMe(data.rememberMe ?? true);
+        if (data.rememberMe) {
+          saveCredentials(data.email, data.password);
+        }
         login(result.user, result.tenant, result.token);
         setMode('LOCAL');
         navigate('/');

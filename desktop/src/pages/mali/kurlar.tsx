@@ -105,7 +105,7 @@ export const KurlarPage: React.FC = () => {
       setSaving(true);
       await invoke('set_kur', {
         tenantIdParam: tenant.id,
-        kur: {
+        data: {
           para_birimi: paraBirimi,
           hedef_para_birimi: 'TRY',
           kur_degeri: kurDegeri,
@@ -137,7 +137,7 @@ export const KurlarPage: React.FC = () => {
       setSaving(true);
       await invoke('set_kur', {
         tenantIdParam: tenant.id,
-        kur: formData,
+        data: formData,
       });
       
       setShowModal(false);

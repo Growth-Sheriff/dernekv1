@@ -30,6 +30,13 @@ interface GiderTuru {
   ad: string;
 }
 
+interface Uye {
+  id: string;
+  ad: string;
+  soyad: string;
+  uye_no?: string;
+}
+
 export const GiderlerPage: React.FC = () => {
   const navigate = useNavigate();
   const tenant = useAuthStore((state) => state.tenant);
@@ -37,6 +44,7 @@ export const GiderlerPage: React.FC = () => {
   const [giderler, setGiderler] = React.useState<Gider[]>([]);
   const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
   const [giderTurleri, setGiderTurleri] = React.useState<GiderTuru[]>([]);
+  const [uyeler, setUyeler] = React.useState<Uye[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [baslangic, setBaslangic] = React.useState<string>('');
   const [bitis, setBitis] = React.useState<string>('');
@@ -59,6 +67,7 @@ export const GiderlerPage: React.FC = () => {
   const [tahakkukDurumu, setTahakkukDurumu] = React.useState<string>('NORMAL');  
   const [notlar, setNotlar] = React.useState<string>('');
   const [evrakData, setEvrakData] = React.useState<EvrakData | null>(null);
+  const [selectedUyeId, setSelectedUyeId] = React.useState<string>('');
   
   // Demirbaş ekleme state'leri
   const [demirbasEkle, setDemirbasEkle] = React.useState<boolean>(false);
@@ -87,6 +96,7 @@ export const GiderlerPage: React.FC = () => {
     }
     loadKasalar();
     loadGiderTurleri();
+    loadUyeler();
     loadGiderler();
   }, [tenant, baslangic, bitis, filterTuruId, pageIndex, pageSize]);
 
@@ -109,6 +119,16 @@ export const GiderlerPage: React.FC = () => {
       if (result.length > 0 && !giderTuruId) setGiderTuruId(result[0].id);
     } catch (error) {
       console.error('Gider türleri yüklenemedi:', error);
+    }
+  };
+
+  const loadUyeler = async () => {
+    if (!tenant) return;
+    try {
+      const result = await invoke<Uye[]>('get_uyeler', { tenantIdParam: tenant.id });
+      setUyeler(result);
+    } catch (error) {
+      console.error('Üyeler yüklenemedi:', error);
     }
   };
 
@@ -188,6 +208,7 @@ export const GiderlerPage: React.FC = () => {
           islem_no: faturaNo || null,
           odeyen: odeyen || null,
           notlar: notlar || null,
+          uye_id: selectedUyeId || null,
         },
       });
       
@@ -441,6 +462,22 @@ export const GiderlerPage: React.FC = () => {
             
             <div className="grid grid-cols-2 gap-6">
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">İlgili Üye (Opsiyonel)</label>
+                <select
+                  value={selectedUyeId}
+                  onChange={(e) => setSelectedUyeId(e.target.value)}
+                  className="input-macos"
+                >
+                  <option value="">Üye Seçilmedi</option>
+                  {uyeler.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.uye_no ? `${u.uye_no} - ` : ''}{u.ad} {u.soyad}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Ödeyen</label>
                 <input
                   type="text"
@@ -450,7 +487,9 @@ export const GiderlerPage: React.FC = () => {
                   placeholder="Ödemeyi yapan kişi"
                 />
               </div>
-              
+            </div>
+            
+            <div className="grid grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Fatura No</label>
                 <input

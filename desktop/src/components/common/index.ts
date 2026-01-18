@@ -8,3 +8,4 @@ export * from './feature-gate';
 export * from './loading-spinner';
 export * from './error-boundary';
 export * from './empty-state';
+export * from './editable-data-table';

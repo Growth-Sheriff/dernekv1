@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, Package, Search, Filter, Eye, Pencil, Trash2, RotateCcw } from 'lucide-react';
+import { Plus, Package, Search, Filter, Eye, Pencil, Trash2, RotateCcw, Layers } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useAuthStore } from '@/store/authStore';
 import { DataTable } from '@/components/common/data-table';
@@ -242,10 +242,16 @@ export const DemirbaslarListPage: React.FC = () => {
         description="Dernek demirbaşlarını takip edin"
         icon={Package}
         actions={
-          <Button onClick={() => navigate('/demirbaslar/create')}>
-            <Plus className="h-5 w-5 mr-2" />
-            Yeni Demirbaş
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/demirbaslar/toplu')}>
+              <Layers className="h-5 w-5 mr-2" />
+              Toplu Giriş
+            </Button>
+            <Button onClick={() => navigate('/demirbaslar/create')}>
+              <Plus className="h-5 w-5 mr-2" />
+              Yeni Demirbaş
+            </Button>
+          </div>
         }
       />
 

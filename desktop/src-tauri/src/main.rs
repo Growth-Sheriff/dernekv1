@@ -91,6 +91,7 @@ fn main() {
             commands::aile_uyeleri::delete_aile_uyesi,
             // Aidat
             commands::aidat::get_aidat_takip,
+            commands::aidat::get_aidat_takip_with_uye,  // YENİ - üye bilgisiyle
             commands::aidat::create_aidat,
             commands::aidat::kaydet_odeme,
             commands::aidat::hesapla_gecikme,
@@ -223,6 +224,7 @@ fn main() {
             commands::demirbaslar::delete_demirbas,
             commands::demirbaslar::activate_demirbas,
             commands::demirbaslar::get_demirbas_ozet,
+            commands::demirbaslar::toplu_demirbas_olustur,  // YENİ - toplu giriş
             // Vadeli İşlemler
             commands::vadeli_islemler::get_vadeli_islemler,
             commands::vadeli_islemler::create_vadeli_islem,

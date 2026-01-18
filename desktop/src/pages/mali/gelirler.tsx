@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, TrendingUp, Pencil, Trash2 } from 'lucide-react';
+import { Plus, TrendingUp, Pencil, Trash2, User } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { EvrakEkleme, EvrakData } from '@/components/common/EvrakEkleme';
@@ -13,6 +13,7 @@ interface Gelir {
   tutar: number;
   aciklama?: string;
   makbuz_no?: string;
+  uye_id?: string;
   created_at: string;
 }
 
@@ -27,6 +28,13 @@ interface GelirTuru {
   ad: string;
 }
 
+interface Uye {
+  id: string;
+  uye_no: string;
+  ad_soyad: string;
+  telefon?: string;
+}
+
 export const GelirlerPage: React.FC = () => {
   const navigate = useNavigate();
   const tenant = useAuthStore((state) => state.tenant);
@@ -34,6 +42,7 @@ export const GelirlerPage: React.FC = () => {
   const [gelirler, setGelirler] = React.useState<Gelir[]>([]);
   const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
   const [gelirTurleri, setGelirTurleri] = React.useState<GelirTuru[]>([]);
+  const [uyeler, setUyeler] = React.useState<Uye[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [baslangic, setBaslangic] = React.useState<string>('');
   const [bitis, setBitis] = React.useState<string>('');
@@ -56,6 +65,7 @@ export const GelirlerPage: React.FC = () => {
   const [tahakkukDurumu, setTahakkukDurumu] = React.useState<string>('NORMAL');  
   const [notlar, setNotlar] = React.useState<string>('');
   const [evrakData, setEvrakData] = React.useState<EvrakData | null>(null);
+  const [selectedUyeId, setSelectedUyeId] = React.useState<string>('');
 
   React.useEffect(() => {
     if (!tenant) {
@@ -65,7 +75,18 @@ export const GelirlerPage: React.FC = () => {
     loadKasalar();
     loadGelirTurleri();
     loadGelirler();
+    loadUyeler();
   }, [tenant, baslangic, bitis, filterTuruId]);
+
+  const loadUyeler = async () => {
+    if (!tenant) return;
+    try {
+      const result = await invoke<Uye[]>('get_uyeler', { tenantIdParam: tenant.id, skip: 0, limit: 1000 });
+      setUyeler(result);
+    } catch (error) {
+      console.error('Üyeler yüklenemedi:', error);
+    }
+  };
 
   const loadKasalar = async () => {
     if (!tenant) return;
@@ -146,6 +167,9 @@ export const GelirlerPage: React.FC = () => {
           tahakkuk_durumu: tahakkukDurumu || null,
           belge_no: dekontNo || null,
           tahsil_eden: tahsilEden || null,
+          uye_id: selectedUyeId || null,          // Üye bağlantısı
+          aidat_id: null,
+          ait_oldugu_yil: aitOlduguYil || null,
         },
       });
       
@@ -155,6 +179,7 @@ export const GelirlerPage: React.FC = () => {
       setTutar('');
       setAciklama('');
       setDekontNo('');
+      setSelectedUyeId('');
       loadGelirler();
     } catch (error) {
       console.error('Gelir eklenemedi:', error);
@@ -298,6 +323,23 @@ export const GelirlerPage: React.FC = () => {
                   ))}
                 </select>
               </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                İlişkili Üye
+                <span className="text-xs text-gray-500 ml-1">(Aidat geliri için zorunlu)</span>
+              </label>
+              <select
+                value={selectedUyeId}
+                onChange={(e) => setSelectedUyeId(e.target.value)}
+                className="input-macos"
+              >
+                <option value="">Üye seçiniz (opsiyonel)...</option>
+                {uyeler.map(u => (
+                  <option key={u.id} value={u.id}>{u.uye_no} - {u.ad_soyad}</option>
+                ))}
+              </select>
             </div>
             
             <div className="grid grid-cols-3 gap-4">

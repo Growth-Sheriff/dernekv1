@@ -63,7 +63,7 @@ import ButceCreatePage from './pages/butce/create';
 import ButceDetailPage from './pages/butce/detail';
 
 // Demirbaşlar
-import { DemirbaslarListPage, DemirbasCreatePage, DemirbasDetailPage } from './pages/demirbaslar';
+import { DemirbaslarListPage, DemirbasCreatePage, DemirbasDetailPage, DemirbasTopluPage } from './pages/demirbaslar';
 
 // Cari
 import { CariListPage, CariCreatePage, CariDetailPage } from './pages/cari';
@@ -191,6 +191,7 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <DemirbaslarListPage /> },
           { path: 'create', element: <DemirbasCreatePage /> },
+          { path: 'toplu', element: <DemirbasTopluPage /> },
           { path: ':id', element: <DemirbasDetailPage /> },
           { path: ':id/edit', element: <DemirbasCreatePage /> },
         ],

@@ -75,8 +75,8 @@ export const GelirTuruYonetimiPage: React.FC = () => {
         // Update existing
         await invoke('update_gelir_turu', {
           tenantIdParam: tenant!.id,
-          gelirTuruId: editingTur.id,
-          data: {
+          id: editingTur.id,
+          request: {
             ad: formData.ad,
             kod: formData.kod || null,
             aciklama: formData.aciklama || null,
@@ -88,7 +88,7 @@ export const GelirTuruYonetimiPage: React.FC = () => {
         // Create new
         await invoke('create_gelir_turu', {
           tenantIdParam: tenant!.id,
-          data: {
+          request: {
             ad: formData.ad,
             kod: formData.kod || null,
             aciklama: formData.aciklama || null,
@@ -116,7 +116,7 @@ export const GelirTuruYonetimiPage: React.FC = () => {
     try {
       await invoke('delete_gelir_turu', {
         tenantIdParam: tenant!.id,
-        gelirTuruId: id,
+        id: id,
       });
       loadTurler();
       alert('Gelir türü silindi!');

@@ -74,8 +74,8 @@ export const GiderTuruYonetimiPage: React.FC = () => {
         // Update existing
         await invoke('update_gider_turu', {
           tenantIdParam: tenant.id,
-          giderTuruId: editingTur.id,
-          data: {
+          id: editingTur.id,
+          request: {
             ad: formData.ad,
             kod: formData.kod || null,
             aciklama: formData.aciklama || null,
@@ -87,7 +87,7 @@ export const GiderTuruYonetimiPage: React.FC = () => {
         // Create new
         await invoke('create_gider_turu', {
           tenantIdParam: tenant.id,
-          data: {
+          request: {
             ad: formData.ad,
             kod: formData.kod || null,
             aciklama: formData.aciklama || null,
@@ -116,7 +116,7 @@ export const GiderTuruYonetimiPage: React.FC = () => {
     try {
       await invoke('delete_gider_turu', {
         tenantIdParam: tenant.id,
-        giderTuruId: id,
+        id: id,
       });
       loadTurler();
       alert('Gider türü silindi!');

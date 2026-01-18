@@ -23,17 +23,20 @@ const isTauri = (): boolean => {
   return typeof window !== 'undefined' && !!(window as any).__TAURI__;
 };
 
-// Protected Route Wrapper
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+// Protected Route Wrapper - loading sırasında bekle
+const ProtectedRoute: React.FC<{ children: React.ReactNode; loading?: boolean }> = ({ children, loading }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  console.log('🔐 ProtectedRoute - isAuthenticated:', isAuthenticated);
+  
+  // Loading durumunda hiçbir şey render etme
+  if (loading) {
+    return null;
+  }
   
   if (!isAuthenticated) {
     console.log('🔐 ProtectedRoute - Redirecting to /login');
     return <Navigate to="/login" replace />;
   }
   
-  console.log('🔐 ProtectedRoute - Rendering children');
   return <>{children}</>;
 };
 
