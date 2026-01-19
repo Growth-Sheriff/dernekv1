@@ -553,6 +553,7 @@ pub async fn coklu_yil_odeme(
     let yillik_tutar = data.toplam_tutar / yil_sayisi;
 
     let mut yillar = Vec::new();
+    let mut toplam_odenen: f64 = 0.0;
 
     for y in data.baslangic_yili..=data.bitis_yili {
         // Bu yıl için aidat var mı kontrol et
@@ -564,7 +565,11 @@ pub async fn coklu_yil_odeme(
             .optional()
             .map_err(|e| e.to_string())?;
 
-        if let Some(mut aidat_rec) = mevcut {
+        let aidat_id_for_gelir: String;
+
+        if let Some(aidat_rec) = mevcut {
+            aidat_id_for_gelir = aidat_rec.id.clone();
+            
             // Mevcut aidatı güncelle
             diesel::update(aidat_takip.filter(id.eq(&aidat_rec.id)))
                 .set((
@@ -578,8 +583,11 @@ pub async fn coklu_yil_odeme(
                 .map_err(|e| e.to_string())?;
         } else {
             // Yeni aidat kaydı oluştur
+            let new_id = Uuid::new_v4().to_string();
+            aidat_id_for_gelir = new_id.clone();
+            
             let new_aidat = AidatTakip {
-                id: Uuid::new_v4().to_string(),
+                id: new_id,
                 tenant_id: tenant_id_param.clone(),
                 uye_id: data.uye_id.clone(),
                 yil: y,
@@ -608,8 +616,43 @@ pub async fn coklu_yil_odeme(
                 .map_err(|e| e.to_string())?;
         }
 
+        // Her yıl için gelir kaydı oluştur ve kasa güncelle
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let new_gelir_id = Uuid::new_v4().to_string();
+        let makbuz_no = format!("AIDAT-{}", &new_gelir_id[..8]);
+        
+        diesel::sql_query(
+            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, aidat_id, uye_id, makbuz_no, is_active, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)"
+        )
+        .bind::<diesel::sql_types::Text, _>(&new_gelir_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+        .bind::<diesel::sql_types::Text, _>("Aidat")
+        .bind::<diesel::sql_types::Double, _>(yillik_tutar)
+        .bind::<diesel::sql_types::Text, _>(&data.odeme_tarihi)
+        .bind::<diesel::sql_types::Text, _>(format!("Çoklu yıl ödemesi - {} yılı aidatı", y))
+        .bind::<diesel::sql_types::Text, _>(&aidat_id_for_gelir)
+        .bind::<diesel::sql_types::Text, _>(&data.uye_id)
+        .bind::<diesel::sql_types::Text, _>(&makbuz_no)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(&mut conn)
+        .map_err(|e| format!("Gelir kaydı oluşturulamadı: {}", e))?;
+
+        toplam_odenen += yillik_tutar;
         yillar.push(y);
     }
+
+    // Toplam tutarı kasaya ekle (tek seferde)
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    diesel::sql_query(
+        "UPDATE kasalar SET bakiye = bakiye + ?1, updated_at = ?2 WHERE id = ?3"
+    )
+    .bind::<diesel::sql_types::Double, _>(toplam_odenen)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+    .execute(&mut conn)
+    .map_err(|e| format!("Kasa güncellenemedi: {}", e))?;
 
     Ok(CokluYilOdemeResult {
         success: true,
@@ -1249,4 +1292,94 @@ pub async fn delete_aidat_tanimlama(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+// ============================================================================
+// ÜYE BORÇ DURUMU SORGULAMA
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct UyeBorcDurumu {
+    pub uye_id: String,
+    pub toplam_borc: f64,
+    pub odenen: f64,
+    pub kalan_borc: f64,
+}
+
+#[derive(Debug, QueryableByName)]
+struct BorcRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub uye_id: String,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub toplam_borc: f64,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub odenen: f64,
+}
+
+/// Birden fazla üye için borç durumlarını toplu getir
+#[tauri::command]
+pub async fn get_uye_borc_durumlari(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    uye_ids: Vec<String>,
+) -> Result<Vec<UyeBorcDurumu>, String> {
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+    
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    
+    if uye_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    
+    // Tüm üyelerin borç durumlarını tek sorguda getir
+    let placeholders: Vec<String> = uye_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 2)).collect();
+    let query = format!(
+        "SELECT uye_id, 
+                COALESCE(SUM(tutar), 0.0) as toplam_borc, 
+                COALESCE(SUM(odenen), 0.0) as odenen
+         FROM aidat_takip 
+         WHERE tenant_id = ?1 AND uye_id IN ({})
+         GROUP BY uye_id",
+        placeholders.join(", ")
+    );
+    
+    // Dinamik parametre ile sorgu çalıştır
+    let mut results: Vec<UyeBorcDurumu> = vec![];
+    
+    for uye_id in &uye_ids {
+        let row = diesel::sql_query(
+            "SELECT uye_id, 
+                    COALESCE(SUM(tutar), 0.0) as toplam_borc, 
+                    COALESCE(SUM(odenen), 0.0) as odenen
+             FROM aidat_takip 
+             WHERE tenant_id = ?1 AND uye_id = ?2
+             GROUP BY uye_id"
+        )
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(uye_id)
+        .get_result::<BorcRow>(&mut conn)
+        .optional()
+        .map_err(|e| e.to_string())?;
+        
+        if let Some(r) = row {
+            results.push(UyeBorcDurumu {
+                uye_id: r.uye_id,
+                toplam_borc: r.toplam_borc,
+                odenen: r.odenen,
+                kalan_borc: r.toplam_borc - r.odenen,
+            });
+        } else {
+            // Aidat kaydı olmayan üyeler için 0 borç
+            results.push(UyeBorcDurumu {
+                uye_id: uye_id.clone(),
+                toplam_borc: 0.0,
+                odenen: 0.0,
+                kalan_borc: 0.0,
+            });
+        }
+    }
+    
+    Ok(results)
 }

@@ -613,16 +613,16 @@ export const UyelerDetailPage: React.FC = () => {
                 {aidatlar.reduce((sum, a) => sum + a.odenen, 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
               </p>
             </div>
-            <div className="bg-orange-50 rounded-lg p-4">
-              <p className="text-xs text-orange-600 font-medium">Bekleyen</p>
-              <p className="text-xl font-bold text-orange-700">
-                {aidatlar.filter(a => a.durum === 'bekliyor').length} adet
+            <div className="bg-red-50 rounded-lg p-4">
+              <p className="text-xs text-red-600 font-medium">Kalan Borç</p>
+              <p className="text-xl font-bold text-red-700">
+                {aidatlar.reduce((sum, a) => sum + (a.tutar - a.odenen), 0).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })}
               </p>
             </div>
-            <div className="bg-red-50 rounded-lg p-4">
-              <p className="text-xs text-red-600 font-medium">Geciken</p>
-              <p className="text-xl font-bold text-red-700">
-                {aidatlar.filter(a => a.durum === 'gecikti').length} adet
+            <div className="bg-orange-50 rounded-lg p-4">
+              <p className="text-xs text-orange-600 font-medium">Geciken</p>
+              <p className="text-xl font-bold text-orange-700">
+                {aidatlar.filter(a => a.durum === 'gecikti' || (a.tutar - a.odenen > 0 && a.durum !== 'odendi')).length} adet
               </p>
             </div>
           </div>

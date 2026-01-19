@@ -107,6 +107,7 @@ fn main() {
             commands::aidat::delete_aidat_odeme,
             commands::aidat::update_aidat_tanimlama,
             commands::aidat::delete_aidat_tanimlama,
+            commands::aidat::get_uye_borc_durumlari,  // Üye borç durumları
             // Mali - Kasalar
             commands::mali::get_kasalar,
             commands::mali::create_kasa,

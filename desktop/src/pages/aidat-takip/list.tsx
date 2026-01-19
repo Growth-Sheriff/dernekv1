@@ -34,11 +34,18 @@ interface Uye {
   soyad: string;
 }
 
+interface Kasa {
+  id: string;
+  ad: string;
+  bakiye: number;
+}
+
 export const AidatTakipPage: React.FC = () => {
   const tenant = useAuthStore((state) => state.tenant);
   
   const [aidatlar, setAidatlar] = React.useState<AidatTakip[]>([]);
   const [uyeler, setUyeler] = React.useState<Uye[]>([]);
+  const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
   const [selectedAidat, setSelectedAidat] = React.useState<AidatTakip | null>(null);
   const [odemeler, setOdemeler] = React.useState<AidatOdeme[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -56,6 +63,7 @@ export const AidatTakipPage: React.FC = () => {
   // Ödeme Form
   const [odemeTarihi, setOdemeTarihi] = React.useState<string>(new Date().toISOString().split('T')[0]);
   const [odemeTutari, setOdemeTutari] = React.useState<string>('');
+  const [kasaId, setKasaId] = React.useState<string>('');
   const [tahsilatTuru, setTahsilatTuru] = React.useState<string>('NAKİT');
   const [bankaSube, setBankaSube] = React.useState<string>('');
   const [dekontNo, setDekontNo] = React.useState<string>('');
@@ -67,6 +75,7 @@ export const AidatTakipPage: React.FC = () => {
       return;
     }
     loadUyeler();
+    loadKasalar();
     loadAidatlar();
   }, [tenant, selectedYear]);
 
@@ -81,6 +90,22 @@ export const AidatTakipPage: React.FC = () => {
       setUyeler(result);
     } catch (error) {
       console.error('Üyeler yüklenemedi:', error);
+    }
+  };
+
+  const loadKasalar = async () => {
+    if (!tenant) return;
+    try {
+      const result = await invoke<Kasa[]>('get_kasalar', {
+        tenantIdParam: tenant.id,
+      });
+      setKasalar(result);
+      // Varsayılan kasa seç
+      if (result.length > 0 && !kasaId) {
+        setKasaId(result[0].id);
+      }
+    } catch (error) {
+      console.error('Kasalar yüklenemedi:', error);
     }
   };
 
@@ -177,6 +202,11 @@ export const AidatTakipPage: React.FC = () => {
       alert('❌ Ödeme tutarı girin!');
       return;
     }
+
+    if (!kasaId) {
+      alert('❌ Kasa seçin!');
+      return;
+    }
     
     const tutarNum = parseFloat(odemeTutari);
     if (isNaN(tutarNum) || tutarNum <= 0) {
@@ -185,20 +215,18 @@ export const AidatTakipPage: React.FC = () => {
     }
     
     try {
-      await invoke('kaydet_odeme', {
+      // Aidat ödemesini gelir kaydıyla birlikte kaydet
+      await invoke('kaydet_aidat_odeme_with_gelir', {
         tenantIdParam: tenant.id,
-        aidatId: selectedAidat.id,
-        odeme: {
+        data: {
+          aidat_id: selectedAidat.id,
+          kasa_id: kasaId,
           tutar: tutarNum,
           odeme_tarihi: odemeTarihi,
-          tahsilat_turu: tahsilatTuru || null,
-          banka_sube: bankaSube || null,
-          dekont_no: dekontNo || null,
-          aciklama: odemeAciklama || null,
         },
       });
       
-      alert('✅ Ödeme kaydedildi!');
+      alert('✅ Ödeme kaydedildi ve gelir olarak işlendi!');
       setShowOdemeForm(false);
       
       // Form sıfırla
@@ -394,7 +422,24 @@ export const AidatTakipPage: React.FC = () => {
           )}
           
           <form onSubmit={handleCreateOdeme} className="space-y-6 px-6 py-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Kasa *</label>
+                <select
+                  value={kasaId}
+                  onChange={(e) => setKasaId(e.target.value)}
+                  className="input-macos"
+                  required
+                >
+                  <option value="">Kasa Seçin</option>
+                  {kasalar.map((kasa) => (
+                    <option key={kasa.id} value={kasa.id}>
+                      {kasa.ad} (Bakiye: {kasa.bakiye.toFixed(2)} ₺)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Tarih *</label>
                 <input
@@ -405,7 +450,9 @@ export const AidatTakipPage: React.FC = () => {
                   required
                 />
               </div>
-              
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Tutar *</label>
                 <input
@@ -420,12 +467,11 @@ export const AidatTakipPage: React.FC = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tahsilat Türü *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tahsilat Türü</label>
                 <select
                   value={tahsilatTuru}
                   onChange={(e) => setTahsilatTuru(e.target.value)}
                   className="input-macos"
-                  required
                 >
                   <option value="NAKİT">Nakit</option>
                   <option value="HAVALE">Havale/EFT</option>

@@ -23,11 +23,19 @@ interface Uye {
   uyelik_tipi?: string;
 }
 
+interface UyeBorcDurumu {
+  uye_id: string;
+  toplam_borc: number;
+  odenen: number;
+  kalan_borc: number;
+}
+
 export const UyelerListPage: React.FC = () => {
   const navigate = useNavigate();
   const tenant = useAuthStore((state) => state.tenant);
   
   const [uyeler, setUyeler] = React.useState<Uye[]>([]);
+  const [borcDurumlari, setBorcDurumlari] = React.useState<Record<string, UyeBorcDurumu>>({});
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [durum, setDurum] = React.useState<string>('');
@@ -88,11 +96,33 @@ export const UyelerListPage: React.FC = () => {
         limit: 100,
       });
       setUyeler(result);
+      
+      // Borç durumlarını yükle
+      loadBorcDurumlari(result.map(u => u.id));
     } catch (error) {
       console.error('Failed to load uyeler:', error);
       toast.error('Üyeler yüklenemedi: ' + error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBorcDurumlari = async (uyeIds: string[]) => {
+    if (!tenant || uyeIds.length === 0) return;
+    
+    try {
+      const result = await invoke<UyeBorcDurumu[]>('get_uye_borc_durumlari', {
+        tenantIdParam: tenant.id,
+        uyeIds,
+      });
+      
+      const borcMap: Record<string, UyeBorcDurumu> = {};
+      result.forEach(b => {
+        borcMap[b.uye_id] = b;
+      });
+      setBorcDurumlari(borcMap);
+    } catch (error) {
+      console.error('Borç durumları yüklenemedi:', error);
     }
   };
 
@@ -1095,13 +1125,13 @@ export const UyelerListPage: React.FC = () => {
                     Ad Soyad
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Üelik Tipi
+                    Üyelik Tipi
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Telefon
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Referans Üye
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Kalan Borç
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Durum
@@ -1151,12 +1181,19 @@ export const UyelerListPage: React.FC = () => {
                       {uye.telefon || '-'}
                     </td>
                     <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
+                      className="px-6 py-4 whitespace-nowrap text-sm text-right cursor-pointer"
                       onClick={() => navigate(`/uyeler/${uye.id}`)}
                     >
-                      {uye.referans_uye_id ? (
-                        <span className="inline-flex items-center px-2 py-1 bg-amber-50 text-amber-700 rounded text-xs font-medium">
-                          👤 {uyeler.find(u => u.id === uye.referans_uye_id)?.ad} {uyeler.find(u => u.id === uye.referans_uye_id)?.soyad || 'Referans'}
+                      {borcDurumlari[uye.id] ? (
+                        <span className={`font-medium ${
+                          borcDurumlari[uye.id].kalan_borc > 0 
+                            ? 'text-red-600' 
+                            : 'text-green-600'
+                        }`}>
+                          {borcDurumlari[uye.id].kalan_borc > 0 
+                            ? `${borcDurumlari[uye.id].kalan_borc.toLocaleString('tr-TR')} ₺`
+                            : '✓ Borç Yok'
+                          }
                         </span>
                       ) : (
                         <span className="text-gray-400">-</span>
