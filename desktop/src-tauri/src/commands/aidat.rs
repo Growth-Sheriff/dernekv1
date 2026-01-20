@@ -519,6 +519,103 @@ pub async fn toplu_aidat_olustur(
     })
 }
 
+// Kişi bazlı toplu aidat oluşturma (belirli bir üye için yıl aralığı)
+#[tauri::command]
+pub async fn toplu_aidat_kisi_bazli(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    uye_id: String,
+    baslangic_yili: i32,
+    bitis_yili: i32,
+) -> Result<TopluAidatResult, String> {
+    use crate::db::schema::aidat_takip::dsl as aidat_dsl;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // Üyeyi kontrol et
+    let uye: crate::db::models::Uye = diesel::sql_query("SELECT * FROM uyeler WHERE id = ?1 AND tenant_id = ?2")
+        .bind::<diesel::sql_types::Text, _>(&uye_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .get_result(&mut conn)
+        .map_err(|_| "Üye bulunamadı!")?;
+
+    let mut olusturulan = 0;
+    let mut toplam = 0.0;
+
+    for yil in baslangic_yili..=bitis_yili {
+        // Bu üyenin bu yıl için aidatı var mı kontrol et
+        let mevcut = aidat_dsl::aidat_takip
+            .filter(aidat_dsl::tenant_id.eq(&tenant_id_param))
+            .filter(aidat_dsl::uye_id.eq(&uye.id))
+            .filter(aidat_dsl::yil.eq(yil))
+            .first::<AidatTakip>(&mut conn)
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if mevcut.is_none() {
+            let aidat_id = Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            
+            // Öncelik sırası: 1. Üyenin özel aidat tutarı, 2. Üyelik tipine göre tanım, 3. Varsayılan 0
+            let uye_aidat_tutari = if let Some(ozel_tutar) = uye.ozel_aidat_tutari {
+                ozel_tutar
+            } else {
+                // Üyelik tipine göre aidat tanımından tutar çek
+                let uye_tipi = uye.uyelik_tipi.clone().unwrap_or_else(|| "Asil".to_string());
+                let tanim_tutar: Option<f64> = diesel::sql_query(
+                    "SELECT tutar FROM aidat_tanimlari WHERE tenant_id = ?1 AND yil = ?2 AND uye_turu = ?3 AND is_active = 1"
+                )
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .bind::<diesel::sql_types::Integer, _>(yil)
+                .bind::<diesel::sql_types::Text, _>(&uye_tipi)
+                .get_result::<TutarRow>(&mut conn)
+                .ok()
+                .map(|r| r.tutar);
+                
+                tanim_tutar.unwrap_or(0.0)
+            };
+            
+            // Aidat kaydı oluştur
+            diesel::sql_query(
+                "INSERT INTO aidat_takip (
+                    id, tenant_id, uye_id, yil, ay, tutar, odenen, kalan,
+                    durum, gecikme_gun, gecikme_faiz, notlar, aktarim_durumu,
+                    created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+            )
+            .bind::<diesel::sql_types::Text, _>(&aidat_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&uye.id)
+            .bind::<diesel::sql_types::Integer, _>(yil)
+            .bind::<diesel::sql_types::Integer, _>(1)
+            .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
+            .bind::<diesel::sql_types::Double, _>(0.0)
+            .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
+            .bind::<diesel::sql_types::Text, _>("beklemede")
+            .bind::<diesel::sql_types::Integer, _>(0)
+            .bind::<diesel::sql_types::Double, _>(0.0)
+            .bind::<diesel::sql_types::Text, _>(format!("Toplu oluşturuldu ({})", yil))
+            .bind::<diesel::sql_types::Text, _>("aktarilmadi")
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .execute(&mut conn)
+            .map_err(|e| e.to_string())?;
+            
+            olusturulan += 1;
+            toplam += uye_aidat_tutari;
+        }
+    }
+
+    Ok(TopluAidatResult {
+        success: true,
+        olusturulan_adet: olusturulan,
+        toplam_tutar: toplam,
+        mesaj: format!("{} yıl için {} adet aidat oluşturuldu.", bitis_yili - baslangic_yili + 1, olusturulan),
+    })
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CokluYilOdemeRequest {
     pub uye_id: String,

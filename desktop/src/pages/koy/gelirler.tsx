@@ -1,6 +1,6 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, TrendingUp, Pencil, Trash2 } from 'lucide-react';
+import { Plus, TrendingUp, Pencil, Trash2, FileDown } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
@@ -180,6 +180,22 @@ export const KoyGelirlerPage: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    if (!tenant) return;
+    
+    try {
+      const filePath = await invoke<string>('export_gelirler_excel', {
+        tenantIdParam: tenant.id,
+        baslangicTarih: baslangic || null,
+        bitisTarih: bitis || null,
+      });
+      alert(`Excel dosyası oluşturuldu: ${filePath}`);
+    } catch (error) {
+      console.error('Export başarısız:', error);
+      alert('Export başarısız: ' + error);
+    }
+  };
+
   const toplam = gelirler.reduce((sum, g) => sum + g.tutar, 0);
 
   return (
@@ -190,13 +206,22 @@ export const KoyGelirlerPage: React.FC = () => {
           <p className="text-gray-500 mt-1.5">Köy gelir kayıtları ve takibi</p>
         </div>
         
-        <button
-          onClick={() => setShowForm(true)}
-          className="btn-macos flex items-center space-x-2"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Yeni Gelir</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExport}
+            className="btn-macos-secondary flex items-center space-x-2"
+          >
+            <FileDown className="w-5 h-5" />
+            <span>Excel Export</span>
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="btn-macos flex items-center space-x-2"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Yeni Gelir</span>
+          </button>
+        </div>
       </div>
 
       {/* Gelir Ekleme Modal */}

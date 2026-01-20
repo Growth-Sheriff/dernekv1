@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, Package, Search, Filter, Eye, Pencil, Trash2, RotateCcw, Layers } from 'lucide-react';
+import { Plus, Package, Search, Filter, Eye, Pencil, Trash2, RotateCcw, Layers, FileDown } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useAuthStore } from '@/store/authStore';
 import { DataTable } from '@/components/common/data-table';
@@ -48,6 +48,7 @@ export const DemirbaslarListPage: React.FC = () => {
   const [kategoriFilter, setKategoriFilter] = React.useState('');
   const [durumFilter, setDurumFilter] = React.useState('');
   const [showPassive, setShowPassive] = React.useState(false);
+  const [groupByType, setGroupByType] = React.useState(true); // YENİ: Gruplama toggle
 
   React.useEffect(() => {
     if (tenant) {
@@ -110,6 +111,21 @@ export const DemirbaslarListPage: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    if (!tenant) return;
+    
+    try {
+      toast.loading('Excel dosyası oluşturuluyor...');
+      const filePath = await invoke<string>('export_demirbaslar_excel', {
+        tenantIdParam: tenant.id,
+      });
+      toast.success(`Excel dosyası oluşturuldu: ${filePath}`);
+    } catch (error) {
+      console.error('Failed to export:', error);
+      toast.error('Export başarısız: ' + error);
+    }
+  };
+
   const formatCurrency = (value?: number) => {
     if (!value) return '₺0';
     return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
@@ -126,7 +142,7 @@ export const DemirbaslarListPage: React.FC = () => {
   };
 
   // DataTable columns tanımı
-  const columns: ColumnDef<Demirbas>[] = React.useMemo(() => [
+  const columns: ColumnDef<Demirbas & { adet?: number }>[] = React.useMemo(() => [
     {
       accessorKey: 'demirbas_no',
       header: 'No',
@@ -137,7 +153,14 @@ export const DemirbaslarListPage: React.FC = () => {
       header: 'Demirbaş',
       cell: ({ row }) => (
         <div>
-          <p className="font-medium">{row.original.ad}</p>
+          <p className="font-medium">
+            {row.original.ad}
+            {groupByType && row.original.adet && row.original.adet > 1 && (
+              <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full font-semibold">
+                x{row.original.adet}
+              </span>
+            )}
+          </p>
           {row.original.marka_model && <p className="text-sm text-gray-500">{row.original.marka_model}</p>}
         </div>
       ),
@@ -212,7 +235,7 @@ export const DemirbaslarListPage: React.FC = () => {
         );
       },
     },
-  ], [navigate]);
+  ], [navigate, groupByType]);
 
   const kategoriler = ['Mobilya', 'Elektronik', 'Araç', 'Makine', 'Ofis Malzemesi', 'Diğer'];
   const durumlar = ['Aktif', 'Bakımda', 'Hurda', 'Satıldı'];
@@ -225,6 +248,23 @@ export const DemirbaslarListPage: React.FC = () => {
     const matchDurum = !durumFilter || d.durum === durumFilter;
     return matchSearch && matchKategori && matchDurum;
   });
+
+  // Gruplama: Aynı tür demirbaşları birleştir
+  const grouped = React.useMemo(() => {
+    if (!groupByType) return filtered.map(d => ({ ...d, adet: 1 }));
+    
+    const groups = filtered.reduce((acc, d) => {
+      const key = `${d.kategori}-${d.ad}-${d.marka_model || ''}`;
+      if (!acc[key]) {
+        acc[key] = { ...d, adet: 0, kayit_ids: [] };
+      }
+      acc[key].adet += 1;
+      acc[key].kayit_ids.push(d.id);
+      return acc;
+    }, {} as Record<string, Demirbas & { adet: number; kayit_ids: string[] }>);
+    
+    return Object.values(groups);
+  }, [filtered, groupByType]);
 
   if (loading) {
     return (
@@ -243,6 +283,10 @@ export const DemirbaslarListPage: React.FC = () => {
         icon={Package}
         actions={
           <div className="flex gap-2">
+            <Button variant="outline" onClick={handleExport}>
+              <FileDown className="h-5 w-5 mr-2" />
+              Excel Export
+            </Button>
             <Button variant="outline" onClick={() => navigate('/demirbaslar/toplu')}>
               <Layers className="h-5 w-5 mr-2" />
               Toplu Giriş
@@ -346,8 +390,15 @@ export const DemirbaslarListPage: React.FC = () => {
               className="rounded"
             />
             Pasifleri göster
-          </label>
-        </div>
+          </label>          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={groupByType}
+              onChange={(e) => setGroupByType(e.target.checked)}
+              className="rounded"
+            />
+            Tür Bazlı Grupla
+          </label>        </div>
       </div>
 
       {/* Tablo - DataTable ile */}
@@ -355,9 +406,16 @@ export const DemirbaslarListPage: React.FC = () => {
         <CardContent className="p-0">
           <DataTable
             columns={columns}
-            data={filtered}
+            data={grouped}
             loading={loading}
-            onRowClick={(row) => navigate(`/demirbaslar/${row.id}`)}
+            onRowClick={(row) => {
+              // Gruplu görünümde tek kayıt varsa direkt detaya git
+              if (groupByType && row.adet === 1) {
+                navigate(`/demirbaslar/${row.id}`);
+              } else if (!groupByType) {
+                navigate(`/demirbaslar/${row.id}`);
+              }
+            }}
             emptyMessage="Demirbaş bulunamadı"
             showSearch={false}
             tableId="demirbaslar_list"

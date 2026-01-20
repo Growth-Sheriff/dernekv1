@@ -97,6 +97,7 @@ fn main() {
             commands::aidat::hesapla_gecikme,
             commands::aidat::get_aidat_ozet,
             commands::aidat::toplu_aidat_olustur,
+            commands::aidat::toplu_aidat_kisi_bazli,  // YENİ - Kişi bazlı toplu aidat
             commands::aidat::coklu_yil_odeme,
             commands::aidat::kaydet_aidat_odeme_with_gelir,
             commands::aidat::add_aidat_odeme,
@@ -166,6 +167,12 @@ fn main() {
             commands::export::export_uyeler_csv,
             commands::export::export_aidat_raporu_csv,
             commands::export::export_mali_raporu_csv,
+            // Export Excel - YENİ!
+            commands::export::export_kasalar_excel,
+            commands::export::export_gelirler_excel,
+            commands::export::export_giderler_excel,
+            commands::export::export_uyeler_excel,
+            commands::export::export_demirbaslar_excel,
             // Etkinlikler
             commands::etkinlikler::get_etkinlikler,
             commands::etkinlikler::get_etkinlik,  // YENİ!

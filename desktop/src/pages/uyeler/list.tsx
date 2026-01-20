@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, Download, Pencil, Trash2, Eye, EyeOff, RotateCcw, Users, Search } from 'lucide-react';
+import { Plus, Download, Pencil, Trash2, Eye, EyeOff, RotateCcw, Users, Search, FileDown } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageHeader } from '@/components/common/page-header';
@@ -359,6 +359,21 @@ export const UyelerListPage: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    if (!tenant) return;
+    
+    try {
+      toast.loading('Excel dosyası oluşturuluyor...');
+      const filePath = await invoke<string>('export_uyeler_excel', {
+        tenantIdParam: tenant.id,
+      });
+      toast.success(`Excel dosyası oluşturuldu: ${filePath}`);
+    } catch (error) {
+      console.error('Export başarısız:', error);
+      toast.error('Export başarısız: ' + error);
+    }
+  };
+
   React.useEffect(() => {
     if (!tenant) {
       setLoading(false);
@@ -374,10 +389,16 @@ export const UyelerListPage: React.FC = () => {
         description="Dernek üyelerini yönetin"
         icon={Users}
         actions={
-          <Button onClick={() => navigate('/uyeler/create')}>
-            <Plus className="h-4 w-4 mr-2" />
-            Yeni Üye
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleExport}>
+              <FileDown className="h-4 w-4 mr-2" />
+              Excel Export
+            </Button>
+            <Button onClick={() => navigate('/uyeler/create')}>
+              <Plus className="h-4 w-4 mr-2" />
+              Yeni Üye
+            </Button>
+          </div>
         }
       />
 

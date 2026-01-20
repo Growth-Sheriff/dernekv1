@@ -215,8 +215,8 @@ export const GelirlerPage: React.FC = () => {
     try {
       await invoke('update_gelir', {
         tenantIdParam: tenant.id,
-        gelirId: editingGelir.id,
-        data: {
+        id: editingGelir.id,
+        request: {
           kasa_id: kasaId,
           gelir_turu_id: gelirTuruId || null,
           tarih,

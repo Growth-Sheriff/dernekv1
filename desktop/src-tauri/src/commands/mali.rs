@@ -579,28 +579,40 @@ pub async fn virman_yap(
         return Err("Virman tutarı 0'dan büyük olmalıdır!".to_string());
     }
 
-    // Kasaların para birimlerini al
+    // Kasaların para birimlerini ve bakiyelerini al
     #[derive(QueryableByName)]
-    struct KasaParaBirimi {
+    struct KasaBilgi {
         #[diesel(sql_type = diesel::sql_types::Text)]
         para_birimi: String,
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        fiziksel_bakiye: f64,
     }
     
     let kaynak_kasa = diesel::sql_query(
-        "SELECT para_birimi FROM kasalar WHERE id = ?1 AND tenant_id = ?2"
+        "SELECT para_birimi, COALESCE(fiziksel_bakiye, 0.0) as fiziksel_bakiye 
+         FROM kasalar WHERE id = ?1 AND tenant_id = ?2"
     )
     .bind::<diesel::sql_types::Text, _>(&virman.kaynak_kasa_id)
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .get_result::<KasaParaBirimi>(&mut conn)
+    .get_result::<KasaBilgi>(&mut conn)
     .map_err(|_| "Kaynak kasa bulunamadı!")?;
     
     let hedef_kasa = diesel::sql_query(
-        "SELECT para_birimi FROM kasalar WHERE id = ?1 AND tenant_id = ?2"
+        "SELECT para_birimi, COALESCE(fiziksel_bakiye, 0.0) as fiziksel_bakiye 
+         FROM kasalar WHERE id = ?1 AND tenant_id = ?2"
     )
     .bind::<diesel::sql_types::Text, _>(&virman.hedef_kasa_id)
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .get_result::<KasaParaBirimi>(&mut conn)
+    .get_result::<KasaBilgi>(&mut conn)
     .map_err(|_| "Hedef kasa bulunamadı!")?;
+    
+    // KRİTİK: Kaynak kasada yeterli bakiye kontrolü
+    if kaynak_kasa.fiziksel_bakiye < virman.tutar {
+        return Err(format!(
+            "Kaynak kasada yeterli bakiye yok! Mevcut: {:.2}, İstenen: {:.2}",
+            kaynak_kasa.fiziksel_bakiye, virman.tutar
+        ));
+    }
     
     let kaynak_para_birimi = kaynak_kasa.para_birimi;
     let hedef_para_birimi = hedef_kasa.para_birimi;
