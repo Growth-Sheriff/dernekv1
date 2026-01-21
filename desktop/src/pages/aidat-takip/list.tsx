@@ -5,6 +5,10 @@ import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AidatTakipVirtualTable } from '@/components/aidat-takip/AidatTakipVirtualTable';
 import { useAidatTakip } from '@/hooks/useAidatTakip';
+import { ColumnSettingsModal } from '@/components/common/ColumnSettingsModal';
+import { useColumnConfig } from '@/hooks/useColumnConfig';
+import { AIDAT_TAKIP_PAGE_CONFIG, PAGE_PRESETS } from '@/config/columnDefinitions';
+import { PAGE_KEYS } from '@/types/columnConfig';
 
 interface AidatTakip {
   id: string;
@@ -51,6 +55,18 @@ export const AidatTakipPage: React.FC = () => {
   const { aidatlar, isLoading: loading, refetch } = useAidatTakip({
     filterYil: selectedYear,
     limit: 1000,
+  });
+
+  // Column customization
+  const [showColumnSettings, setShowColumnSettings] = React.useState(false);
+  const {
+    config: columnConfig,
+    saveConfig: saveColumnConfig,
+    resetConfig: resetColumnConfig,
+  } = useColumnConfig({
+    pageKey: PAGE_KEYS.AIDAT_TAKIP_LIST,
+    defaultVisible: AIDAT_TAKIP_PAGE_CONFIG.defaultVisible,
+    defaultOrder: AIDAT_TAKIP_PAGE_CONFIG.defaultColumns.map(c => c.id),
   });
 
   const [uyeler, setUyeler] = React.useState<Uye[]>([]);
@@ -537,8 +553,24 @@ export const AidatTakipPage: React.FC = () => {
         <AidatTakipVirtualTable
           aidatlar={aidatlar}
           onOdemeEkle={handleShowOdemeler}
+          columnConfig={columnConfig}
+          onColumnSettings={() => setShowColumnSettings(true)}
         />
       )}
+
+      {/* Column Settings Modal */}
+      <ColumnSettingsModal
+        open={showColumnSettings}
+        onOpenChange={setShowColumnSettings}
+        columns={AIDAT_TAKIP_PAGE_CONFIG.defaultColumns}
+        currentConfig={columnConfig || {
+          visible: AIDAT_TAKIP_PAGE_CONFIG.defaultVisible,
+          order: AIDAT_TAKIP_PAGE_CONFIG.defaultColumns.map(c => c.id),
+        }}
+        onSave={saveColumnConfig}
+        onReset={resetColumnConfig}
+        presets={PAGE_PRESETS[PAGE_KEYS.AIDAT_TAKIP_LIST]}
+      />
     </div>
   );
 };

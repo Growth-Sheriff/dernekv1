@@ -7,6 +7,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { EvrakEkleme, EvrakData } from '@/components/common/EvrakEkleme';
 import { GelirlerVirtualTable } from '@/components/mali/GelirlerVirtualTable';
 import { useGelirler } from '@/hooks/useGelirler';
+import { ColumnSettingsModal } from '@/components/common/ColumnSettingsModal';
+import { useColumnConfig } from '@/hooks/useColumnConfig';
+import { GELIRLER_PAGE_CONFIG, PAGE_PRESETS } from '@/config/columnDefinitions';
+import { PAGE_KEYS } from '@/types/columnConfig';
 
 interface Gelir {
   id: string;
@@ -52,6 +56,18 @@ export const GelirlerPage: React.FC = () => {
     bitisTarih: bitis || null,
     gelirTuruId: filterTuruId || null,
     limit: 1000,
+  });
+
+  // Column customization
+  const [showColumnSettings, setShowColumnSettings] = React.useState(false);
+  const {
+    config: columnConfig,
+    saveConfig: saveColumnConfig,
+    resetConfig: resetColumnConfig,
+  } = useColumnConfig({
+    pageKey: PAGE_KEYS.GELIRLER_LIST,
+    defaultVisible: GELIRLER_PAGE_CONFIG.defaultVisible,
+    defaultOrder: GELIRLER_PAGE_CONFIG.defaultColumns.map(c => c.id),
   });
 
   const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
@@ -717,9 +733,25 @@ export const GelirlerPage: React.FC = () => {
             gelirler={gelirler}
             onEdit={handleEdit}
             onDelete={handleDelete}
+            columnConfig={columnConfig}
+            onColumnSettings={() => setShowColumnSettings(true)}
           />
         )}
       </div>
+
+      {/* Column Settings Modal */}
+      <ColumnSettingsModal
+        open={showColumnSettings}
+        onOpenChange={setShowColumnSettings}
+        columns={GELIRLER_PAGE_CONFIG.defaultColumns}
+        currentConfig={columnConfig || {
+          visible: GELIRLER_PAGE_CONFIG.defaultVisible,
+          order: GELIRLER_PAGE_CONFIG.defaultColumns.map(c => c.id),
+        }}
+        onSave={saveColumnConfig}
+        onReset={resetColumnConfig}
+        presets={PAGE_PRESETS[PAGE_KEYS.GELIRLER_LIST]}
+      />
     </div>
   );
 };
