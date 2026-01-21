@@ -1,10 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, TrendingUp, Pencil, Trash2, User } from 'lucide-react';
+import { Plus, TrendingUp } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { EvrakEkleme, EvrakData } from '@/components/common/EvrakEkleme';
+import { GelirlerVirtualTable } from '@/components/mali/GelirlerVirtualTable';
+import { useGelirler } from '@/hooks/useGelirler';
 
 interface Gelir {
   id: string;
@@ -39,15 +41,22 @@ interface Uye {
 export const GelirlerPage: React.FC = () => {
   const navigate = useNavigate();
   const tenant = useAuthStore((state) => state.tenant);
-  
-  const [gelirler, setGelirler] = React.useState<Gelir[]>([]);
-  const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
-  const [gelirTurleri, setGelirTurleri] = React.useState<GelirTuru[]>([]);
-  const [uyeler, setUyeler] = React.useState<Uye[]>([]);
-  const [loading, setLoading] = React.useState(true);
+
   const [baslangic, setBaslangic] = React.useState<string>('');
   const [bitis, setBitis] = React.useState<string>('');
   const [filterTuruId, setFilterTuruId] = React.useState<string>('');
+
+  // React Query hook ile veri çekme (cache + auto-refetch)
+  const { gelirler, isLoading: loading, refetch } = useGelirler({
+    baslangicTarih: baslangic || null,
+    bitisTarih: bitis || null,
+    gelirTuruId: filterTuruId || null,
+    limit: 1000,
+  });
+
+  const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
+  const [gelirTurleri, setGelirTurleri] = React.useState<GelirTuru[]>([]);
+  const [uyeler, setUyeler] = React.useState<Uye[]>([]);
   const [showForm, setShowForm] = React.useState(false);
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [editingGelir, setEditingGelir] = React.useState<Gelir | null>(null);
@@ -68,16 +77,13 @@ export const GelirlerPage: React.FC = () => {
   const [evrakData, setEvrakData] = React.useState<EvrakData | null>(null);
   const [selectedUyeId, setSelectedUyeId] = React.useState<string>('');
 
+  // React Query hook otomatik olarak tenant, baslangic, bitis, filterTuruId değiştiğinde refetch yapar
   React.useEffect(() => {
-    if (!tenant) {
-      setLoading(false);
-      return;
-    }
+    if (!tenant) return;
     loadKasalar();
     loadGelirTurleri();
-    loadGelirler();
     loadUyeler();
-  }, [tenant, baslangic, bitis, filterTuruId]);
+  }, [tenant]);
 
   const loadUyeler = async () => {
     if (!tenant) return;
@@ -111,30 +117,6 @@ export const GelirlerPage: React.FC = () => {
     }
   };
 
-  const loadGelirler = async () => {
-    if (!tenant) {
-      setLoading(false);
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      const result = await invoke<Gelir[]>('get_gelirler', {
-        tenantIdParam: tenant.id,
-        kasaId: null,
-        baslangicTarih: baslangic || null,
-        bitisTarih: bitis || null,
-        skip: 0,
-        limit: 100,
-      });
-      setGelirler(result);
-    } catch (error) {
-      console.error('Failed to load gelirler:', error);
-      alert('Gelirler yüklenemedi: ' + error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,7 +163,7 @@ export const GelirlerPage: React.FC = () => {
       setAciklama('');
       setDekontNo('');
       setSelectedUyeId('');
-      loadGelirler();
+      refetch();
     } catch (error) {
       console.error('Gelir eklenemedi:', error);
       alert('❌ Gelir eklenemedi: ' + error);
@@ -239,30 +221,31 @@ export const GelirlerPage: React.FC = () => {
       setDekontNo('');
       setDekontNo('');
       setNotlar('');
-      loadGelirler();
+      refetch();
     } catch (error) {
       console.error('Gelir güncellenemedi:', error);
       alert('Gelir güncellenemedi: ' + error);
     }
   };
 
-  const handleDelete = async (id: string, aciklama: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    
+  const handleDelete = async (id: string) => {
+    const gelir = gelirler.find(g => g.id === id);
+    const aciklama = gelir?.aciklama || 'Bu gelir';
+
     if (!window.confirm(`"${aciklama}" gelir kaydını silmek istediğinizden emin misiniz?`)) {
       return;
     }
-    
+
     if (!tenant) return;
-    
+
     try {
       await invoke('delete_gelir', {
         tenantIdParam: tenant.id,
         id: id,
       });
-      
+
       alert('Gelir başarıyla silindi');
-      loadGelirler();
+      refetch();
     } catch (error) {
       console.error('Gelir silinemedi:', error);
       alert('Gelir silinemedi: ' + error);
@@ -722,100 +705,20 @@ export const GelirlerPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50/50 border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Tarih</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Üye</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Tutar</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Açıklama</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Makbuz No</th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">İşlemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      <span>Yükleniyor...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : gelirler.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center text-gray-500">
-                    <div className="flex flex-col items-center gap-2">
-                      <svg className="w-12 h-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <p className="text-sm font-medium">Henüz gelir kaydı yok</p>
-                      <p className="text-xs text-gray-400">Yeni gelir eklemek için yukarıdaki butonu kullanın</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                gelirler.map((gelir) => (
-                  <tr
-                    key={gelir.id}
-                    className="hover:bg-gray-50/50 transition-all duration-150"
-                  >
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {new Date(gelir.tarih).toLocaleDateString('tr-TR')}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {gelir.uye_id ? (
-                        <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
-                          <User className="w-3 h-3 mr-1" />
-                          {uyeler.find(u => u.id === gelir.uye_id)?.ad_soyad || 'Üye'}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                      {gelir.aidat_id && (
-                        <span className="ml-1 text-xs text-purple-600" title="Aidat ödemesi">
-                          💰
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-green-600">
-                        +{gelir.tutar.toFixed(2)} ₺
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {gelir.aciklama || '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {gelir.makbuz_no || '-'}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEdit(gelir);
-                        }}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                        title="Düzenle"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDelete(gelir.id, gelir.aciklama || 'Gelir', e)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Sil"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div className="p-8 text-center text-gray-600">
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <span>Yükleniyor...</span>
+            </div>
+          </div>
+        ) : (
+          <GelirlerVirtualTable
+            gelirler={gelirler}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
+        )}
       </div>
     </div>
   );
