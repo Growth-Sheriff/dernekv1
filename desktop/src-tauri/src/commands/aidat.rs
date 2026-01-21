@@ -1093,7 +1093,7 @@ pub async fn add_aidat_odeme_with_gelir(
         // 4. Aidat kaydını güncelle (gelir_id ile ilişkilendir) + version check
         let affected = diesel::sql_query(
             "UPDATE aidat_takip
-             SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, gelir_id = ?5, gelire_aktarildi = 1, version = version + 1, updated_at = ?6
+             SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, gelir_id = ?5, version = version + 1, updated_at = ?6
              WHERE id = ?7 AND version = ?8"
         )
         .bind::<diesel::sql_types::Double, _>(yeni_odenen)

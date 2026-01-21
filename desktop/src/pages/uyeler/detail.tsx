@@ -64,6 +64,8 @@ interface UyeGelir {
   aciklama?: string;
   makbuz_no?: string;
   aidat_id?: string;
+  aidat_yil?: number;
+  aidat_ay?: number;
 }
 
 interface UyeGider {
@@ -173,14 +175,12 @@ export const UyelerDetailPage: React.FC = () => {
 
     const loadGelirler = async () => {
       try {
-        // Tüm gelirleri çekip üyeye göre filtrele
-        const allGelirler = await invoke<any[]>('get_gelirler', {
+        // Güvenli backend filtreleme - sadece bu üyeye ait gelirler
+        const uyeGelirler = await invoke<any[]>('get_uyeye_ait_gelirler', {
           tenantIdParam: tenant.id,
-          baslangicTarih: null,
-          bitisTarih: null,
-          gelirTuruId: null,
+          uyeId: id,
         });
-        setGelirler(allGelirler.filter(g => g.uye_id === id));
+        setGelirler(uyeGelirler);
       } catch (error) {
         console.error('Gelirler yüklenemedi:', error);
         setGelirler([]);
@@ -189,7 +189,7 @@ export const UyelerDetailPage: React.FC = () => {
 
     const loadGiderler = async () => {
       try {
-        // Tüm giderleri çekip üyeye göre filtrele
+        // NOT: Giderler tablosunda uye_id yok, tüm giderleri client-side filtrele
         const allGiderler = await invoke<any[]>('get_giderler', {
           tenantIdParam: tenant.id,
           baslangicTarih: null,
@@ -729,7 +729,7 @@ export const UyelerDetailPage: React.FC = () => {
                       <td className="py-3 px-4 text-center">
                         {gelir.aidat_id ? (
                           <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
-                            💰 Aidat
+                            💰 Aidat {gelir.aidat_ay && gelir.aidat_yil ? `${aylar[gelir.aidat_ay - 1]} ${gelir.aidat_yil}` : ''}
                           </span>
                         ) : (
                           <span className="text-gray-400">-</span>

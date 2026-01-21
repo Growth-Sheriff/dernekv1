@@ -93,15 +93,13 @@ fn main() {
             commands::aidat::get_aidat_takip,
             commands::aidat::get_aidat_takip_with_uye,  // YENİ - üye bilgisiyle
             commands::aidat::create_aidat,
-            commands::aidat::kaydet_odeme,
             commands::aidat::hesapla_gecikme,
             commands::aidat::get_aidat_ozet,
             commands::aidat::toplu_aidat_olustur,
             commands::aidat::toplu_aidat_kisi_bazli,  // YENİ - Kişi bazlı toplu aidat
             commands::aidat::coklu_yil_odeme,
             commands::aidat::kaydet_aidat_odeme_with_gelir,
-            commands::aidat::add_aidat_odeme,
-            commands::aidat::add_aidat_odeme_with_gelir,  // YENİ - kasa + gelir entegrasyonu
+            commands::aidat::add_aidat_odeme_with_gelir,  // RECOMMENDED - Full integration (kasa + gelir + aidat)
             // Aidat - YENİ EKSİK FONKSİYONLAR!
             commands::aidat::get_aidat_odemeleri,
             commands::aidat::update_aidat_odeme,
@@ -121,6 +119,7 @@ fn main() {
             commands::gelir_turleri::delete_gelir_turu,
             // Mali - Gelirler
             commands::mali::get_gelirler,
+            commands::mali::get_uyeye_ait_gelirler,  // UX İYİLEŞTİRME!
             commands::mali::create_gelir,
             commands::mali::update_gelir,  // YENİ!
             commands::mali::delete_gelir,  // YENİ!

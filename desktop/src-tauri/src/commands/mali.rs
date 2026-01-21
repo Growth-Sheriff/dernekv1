@@ -1640,3 +1640,95 @@ pub async fn recalculate_kasa_bakiye(
         yeni_bakiye, toplam_gelir, toplam_gider, virman_giris, virman_cikis
     ))
 }
+
+// ============================================================================
+// SON KULLANICI DENEYİMİ İYİLEŞTİRMELERİ
+// ============================================================================
+
+/// Gelir kaydı + Aidat dönem bilgisi (UX için)
+#[derive(Debug, Serialize, QueryableByName)]
+pub struct GelirWithAidatDetails {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub tenant_id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub kasa_id: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub gelir_turu: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub gelir_turu_id: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub tarih: String,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub tutar: f64,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub aciklama: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub makbuz_no: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub uye_id: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub aidat_id: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub created_at: String,
+    // Aidat dönem bilgisi (JOIN'den geliyor)
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Integer>)]
+    pub aidat_yil: Option<i32>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Integer>)]
+    pub aidat_ay: Option<i32>,
+}
+
+/// Üyeye ait gelirleri çek (GÜVENLİK + PERFORMANS)
+///
+/// DÜZELTME: Tüm gelirleri çekip client-side filtreleme yerine
+/// sadece üyeye ait gelirleri backend'de filtrele
+#[tauri::command]
+pub async fn get_uyeye_ait_gelirler(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    uye_id: String,
+) -> Result<Vec<GelirWithAidatDetails>, String> {
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // JOIN ile aidat dönem bilgisini al
+    let query = "
+        SELECT
+            g.id,
+            g.tenant_id,
+            g.kasa_id,
+            g.gelir_turu,
+            g.gelir_turu_id,
+            g.tarih,
+            g.tutar,
+            g.aciklama,
+            g.makbuz_no,
+            g.uye_id,
+            g.aidat_id,
+            g.created_at,
+            a.yil as aidat_yil,
+            a.ay as aidat_ay
+        FROM gelirler g
+        LEFT JOIN aidat_takip a ON a.id = g.aidat_id AND a.tenant_id = g.tenant_id
+        WHERE g.tenant_id = ?1 AND g.uye_id = ?2
+        ORDER BY g.tarih DESC, g.created_at DESC
+    ";
+
+    let results = diesel::sql_query(query)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&uye_id)
+        .load::<GelirWithAidatDetails>(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(results)
+}
+
+// NOT: get_uyeye_ait_giderler fonksiyonu kaldırıldı
+// Çünkü giderler tablosunda uye_id column'u yok (schema.rs:167-184)
+// Giderler genelde dernek harcamaları, üyeye özel değil
+// İhtiyaç olursa migration ile uye_id column eklenebilir
