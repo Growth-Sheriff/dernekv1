@@ -8,19 +8,21 @@ import { PageHeader } from '@/components/common/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { UyelerVirtualTable } from '@/components/uyeler/UyelerVirtualTable';
+import { useUyeler } from '@/hooks/useUyeler';
 
 interface Uye {
   id: string;
+  uye_no: string;
   tc_no: string;
-  ad: string;
-  soyad: string;
+  ad_soyad: string;
   telefon?: string;
   email?: string;
   giris_tarihi: string;
   durum: string;
+  uyelik_tipi?: string;
   is_active?: boolean;
   referans_uye_id?: string;
-  uyelik_tipi?: string;
 }
 
 interface UyeBorcDurumu {
@@ -33,13 +35,17 @@ interface UyeBorcDurumu {
 export const UyelerListPage: React.FC = () => {
   const navigate = useNavigate();
   const tenant = useAuthStore((state) => state.tenant);
-  
-  const [uyeler, setUyeler] = React.useState<Uye[]>([]);
-  const [borcDurumlari, setBorcDurumlari] = React.useState<Record<string, UyeBorcDurumu>>({});
-  const [loading, setLoading] = React.useState(true);
+
   const [search, setSearch] = React.useState('');
   const [durum, setDurum] = React.useState<string>('');
   const [showInactive, setShowInactive] = React.useState(false);
+
+  // React Query hook ile veri çekme (cache + auto-refetch)
+  const { uyeler, borcDurumlari, isLoading: loading, refetch } = useUyeler({
+    search: search || null,
+    durum: durum || null,
+    limit: 1000, // Daha fazla kayıt yükle (virtual scrolling ile performans sorunu yok)
+  });
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [editingUye, setEditingUye] = React.useState<Uye | null>(null);
@@ -80,51 +86,6 @@ export const UyelerListPage: React.FC = () => {
     notlar: '',
   });
 
-  const loadUyeler = async () => {
-    if (!tenant) {
-      setLoading(false);
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      const result = await invoke<Uye[]>('get_uyeler', {
-        tenantIdParam: tenant.id,
-        search: search || null,
-        durum: durum || null,
-        skip: 0,
-        limit: 100,
-      });
-      setUyeler(result);
-      
-      // Borç durumlarını yükle
-      loadBorcDurumlari(result.map(u => u.id));
-    } catch (error) {
-      console.error('Failed to load uyeler:', error);
-      toast.error('Üyeler yüklenemedi: ' + error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadBorcDurumlari = async (uyeIds: string[]) => {
-    if (!tenant || uyeIds.length === 0) return;
-    
-    try {
-      const result = await invoke<UyeBorcDurumu[]>('get_uye_borc_durumlari', {
-        tenantIdParam: tenant.id,
-        uyeIds,
-      });
-      
-      const borcMap: Record<string, UyeBorcDurumu> = {};
-      result.forEach(b => {
-        borcMap[b.uye_id] = b;
-      });
-      setBorcDurumlari(borcMap);
-    } catch (error) {
-      console.error('Borç durumları yüklenemedi:', error);
-    }
-  };
 
   const handleCreateUye = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,7 +177,7 @@ export const UyelerListPage: React.FC = () => {
         referans_uye_id: '',
         notlar: '',
       });
-      loadUyeler();
+      refetch();
     } catch (error) {
       console.error('Failed to create uye:', error);
       toast.error('Üye oluşturulamadı: ' + error);
@@ -225,13 +186,18 @@ export const UyelerListPage: React.FC = () => {
 
   const handleEdit = (uye: Uye) => {
     setEditingUye(uye);
+    // ad_soyad'ı böl (ilk boşlukta ayır)
+    const parts = uye.ad_soyad?.split(' ') || ['', ''];
+    const ad = parts[0] || '';
+    const soyad = parts.slice(1).join(' ') || ''; // İlk kelimeden sonraki her şey soyad
+
     setFormData({
       tc_no: uye.tc_no || '',
-      ad: uye.ad || '',
-      soyad: uye.soyad || '',
+      ad,
+      soyad,
       giris_tarihi: uye.giris_tarihi || new Date().toISOString().split('T')[0],
       durum: uye.durum || 'Aktif',
-      uyelik_tipi: (uye as any).uyelik_tipi || 'Asil',
+      uyelik_tipi: uye.uyelik_tipi || 'Asil',
       telefon: uye.telefon || '',
       telefon2: (uye as any).telefon2 || '',
       email: uye.email || '',
@@ -329,7 +295,7 @@ export const UyelerListPage: React.FC = () => {
         referans_uye_id: '',
         notlar: '',
       });
-      loadUyeler();
+      refetch();
     } catch (error) {
       console.error('Failed to update uye:', error);
       toast.error('Üye güncellenemedi: ' + error);
@@ -352,7 +318,7 @@ export const UyelerListPage: React.FC = () => {
       });
       
       toast.success('Üye başarıyla silindi');
-      loadUyeler();
+      refetch();
     } catch (error) {
       console.error('Failed to delete uye:', error);
       toast.error('Üye silinemedi: ' + error);
@@ -374,13 +340,8 @@ export const UyelerListPage: React.FC = () => {
     }
   };
 
-  React.useEffect(() => {
-    if (!tenant) {
-      setLoading(false);
-      return;
-    }
-    loadUyeler();
-  }, [tenant, search, durum]);
+  // React Query hook otomatik olarak tenant, search, durum değiştiğinde refetch yapar
+  // useEffect gerekmez
 
   return (
     <div className="space-y-6">
@@ -748,7 +709,7 @@ export const UyelerListPage: React.FC = () => {
                 >
                   <option value="">Referans üye yok</option>
                   {uyeler.map(u => (
-                    <option key={u.id} value={u.id}>{u.ad} {u.soyad} ({u.tc_no})</option>
+                    <option key={u.id} value={u.id}>{u.ad_soyad} ({u.tc_no})</option>
                   ))}
                 </select>
                 <p className="text-xs text-gray-500 mt-1">Bu üyeyi derneğe kim tavsiye etti?</p>
@@ -1135,129 +1096,13 @@ export const UyelerListPage: React.FC = () => {
             Henüz üye kaydı yok. Yeni üye ekleyerek başlayın.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    TC No
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ad Soyad
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Üyelik Tipi
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Telefon
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kalan Borç
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Durum
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    İşlemler
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {uyeler
-                  .filter(uye => showInactive || uye.is_active !== false)
-                  .map((uye) => (
-                  <tr
-                    key={uye.id}
-                    className={`hover:bg-gray-50 transition-colors ${uye.is_active === false ? 'opacity-50 bg-gray-50' : ''}`}
-                  >
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      {uye.tc_no}
-                    </td>
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      {uye.ad} {uye.soyad}
-                    </td>
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded ${
-                        uye.uyelik_tipi === 'Asil' ? 'bg-blue-100 text-blue-700' :
-                        uye.uyelik_tipi === 'Onursal' ? 'bg-purple-100 text-purple-700' :
-                        uye.uyelik_tipi === 'Fahri' ? 'bg-green-100 text-green-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {uye.uyelik_tipi || 'Asil'}
-                      </span>
-                    </td>
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      {uye.telefon || '-'}
-                    </td>
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap text-sm text-right cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      {borcDurumlari[uye.id] ? (
-                        <span className={`font-medium ${
-                          borcDurumlari[uye.id].kalan_borc > 0 
-                            ? 'text-red-600' 
-                            : 'text-green-600'
-                        }`}>
-                          {borcDurumlari[uye.id].kalan_borc > 0 
-                            ? `${borcDurumlari[uye.id].kalan_borc.toLocaleString('tr-TR')} ₺`
-                            : '✓ Borç Yok'
-                          }
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td 
-                      className="px-6 py-4 whitespace-nowrap cursor-pointer"
-                      onClick={() => navigate(`/uyeler/${uye.id}`)}
-                    >
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        uye.durum === 'Aktif' ? 'bg-green-100 text-green-800' :
-                        uye.durum === 'Pasif' ? 'bg-gray-100 text-gray-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {uye.durum}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEdit(uye);
-                          }}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Düzenle"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDelete(uye.id, `${uye.ad} ${uye.soyad}`, e)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Sil"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <UyelerVirtualTable
+            uyeler={uyeler.filter(uye => showInactive || uye.is_active !== false)}
+            borcDurumlari={borcDurumlari}
+            onView={(id) => navigate(`/uyeler/${id}`)}
+            onEdit={handleEdit}
+            onDelete={(id, adSoyad) => handleDelete(id, adSoyad, { stopPropagation: () => {} } as any)}
+          />
         )}
       </div>
     </div>
