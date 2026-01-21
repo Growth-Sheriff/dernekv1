@@ -75,6 +75,18 @@ pub fn login(
         });
     }
 
+    // Rate limiting kontrolü
+    if let Err(msg) = check_rate_limit(&request.email, &mut conn) {
+        return Ok(LoginResponse {
+            success: false,
+            user: None,
+            tenant: None,
+            license: None,
+            token: None,
+            message: msg,
+        });
+    }
+
     // 1. Kullanıcıyı bul
     #[derive(QueryableByName)]
     struct UserRow {
@@ -116,6 +128,7 @@ pub fn login(
 
     // 2. Şifre kontrolü
     if !verify_password(&request.password, &user.password_hash) {
+        let _ = log_login_attempt(&request.email, false, &mut conn);
         return Ok(LoginResponse {
             success: false,
             user: None,
@@ -183,7 +196,7 @@ pub fn login(
     .get_result::<LicenseRow>(&mut conn)
     .ok();
 
-    // 5. Last login güncelle
+    // 5. Last login güncelle ve başarılı login logla
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let _ = diesel::sql_query(
         "UPDATE users SET last_login = ?1 WHERE id = ?2"
@@ -191,6 +204,8 @@ pub fn login(
     .bind::<diesel::sql_types::Text, _>(&now)
     .bind::<diesel::sql_types::Text, _>(&user.id)
     .execute(&mut conn);
+
+    let _ = log_login_attempt(&request.email, true, &mut conn);
 
     // 6. State güncelle
     *state.current_user.lock().unwrap() = Some(CurrentUser {
@@ -209,9 +224,15 @@ pub fn login(
     });
 
     if let Some(ref lic) = license_opt {
-        let features: serde_json::Value = serde_json::from_str(&lic.features)
-            .unwrap_or(serde_json::json!({}));
-        
+        let features: serde_json::Value = match serde_json::from_str(&lic.features) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("⚠️ License features JSON parse error: {}. Using empty features.", e);
+                eprintln!("   Raw features string: {}", &lic.features);
+                serde_json::json!({})
+            }
+        };
+
         *state.license.lock().unwrap() = Some(LicenseInfo {
             plan: lic.plan.clone(),
             mode: "LOCAL".to_string(),
@@ -386,7 +407,16 @@ fn verify_password(password: &str, hash: &str) -> bool {
     if let Ok(result) = verify(password, hash) {
         return result;
     }
-    hash == format!("hashed_{}", password) || hash == password
+
+    #[cfg(debug_assertions)]
+    {
+        // Dev mode: test verileri için fallback
+        if hash == format!("hashed_{}", password) || hash == password {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn is_valid_email(email: &str) -> bool {
@@ -398,4 +428,55 @@ fn is_valid_email(email: &str) -> bool {
 fn generate_session_token(user_id: &str) -> String {
     use uuid::Uuid;
     format!("session_{}_{}", user_id, Uuid::new_v4())
+}
+
+fn check_rate_limit(email: &str, conn: &mut diesel::sqlite::SqliteConnection) -> Result<(), String> {
+    use uuid::Uuid;
+
+    // 5 dakika öncesi
+    let five_min_ago = chrono::Utc::now() - chrono::Duration::minutes(5);
+    let threshold = five_min_ago.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    #[derive(QueryableByName)]
+    struct CountRow {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        count: i32,
+    }
+
+    let failed_count = diesel::sql_query(
+        "SELECT COUNT(*) as count FROM login_attempts
+         WHERE email = ?1 AND success = 0 AND attempt_time > ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(email)
+    .bind::<diesel::sql_types::Text, _>(&threshold)
+    .get_result::<CountRow>(conn)
+    .map(|r| r.count)
+    .unwrap_or(0);
+
+    if failed_count >= 5 {
+        return Err("Çok fazla başarısız deneme. 5 dakika sonra tekrar deneyin.".to_string());
+    }
+
+    Ok(())
+}
+
+fn log_login_attempt(email: &str, success: bool, conn: &mut diesel::sqlite::SqliteConnection) -> Result<(), diesel::result::Error> {
+    use uuid::Uuid;
+
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let success_val = if success { 1 } else { 0 };
+
+    diesel::sql_query(
+        "INSERT INTO login_attempts (id, email, attempt_time, success, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)"
+    )
+    .bind::<diesel::sql_types::Text, _>(&id)
+    .bind::<diesel::sql_types::Text, _>(email)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Integer, _>(success_val)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .execute(conn)?;
+
+    Ok(())
 }

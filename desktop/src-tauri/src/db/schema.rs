@@ -83,6 +83,7 @@ diesel::table! {
         notlar -> Nullable<Text>,
         gelir_id -> Nullable<Text>,
         aktarim_durumu -> Nullable<Text>,
+        version -> Integer,
         created_at -> Text,
         updated_at -> Text,
     }

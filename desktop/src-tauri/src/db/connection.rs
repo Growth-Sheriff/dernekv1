@@ -161,60 +161,72 @@ pub fn run_migrations(conn: &mut SqliteConnection) -> QueryResult<()> {
                 !trimmed.is_empty() && !trimmed.starts_with("--")
             })
             .collect();
-        
+
         let cleaned_sql = sql_lines.join(" ");
 
-        // SQL ifadelerini çalıştır
-        for statement in cleaned_sql.split(';') {
-            let trimmed = statement.trim();
-            if !trimmed.is_empty() {
-                match diesel::sql_query(trimmed).execute(conn) {
-                    Ok(_) => {
-                        let preview = if trimmed.len() > 60 { 
-                            format!("{}...", &trimmed[..60]) 
-                        } else { 
-                            trimmed.to_string() 
-                        };
-                        println!("  ✓ {}", preview);
-                    }
-                    Err(e) => {
-                        let error_msg = format!("{:?}", e);
-                        
-                        // Bu hataları atla - kritik değil
-                        if error_msg.contains("duplicate column") ||
-                           error_msg.contains("already exists") ||
-                           error_msg.contains("no such table") ||
-                           error_msg.contains("no such column") {
-                            let preview = if trimmed.len() > 40 { 
-                                format!("{}...", &trimmed[..40]) 
-                            } else { 
-                                trimmed.to_string() 
+        // Transaction içinde migration çalıştır
+        let migration_result: Result<(), diesel::result::Error> = conn.transaction(|conn| {
+            // SQL ifadelerini çalıştır
+            for statement in cleaned_sql.split(';') {
+                let trimmed = statement.trim();
+                if !trimmed.is_empty() {
+                    match diesel::sql_query(trimmed).execute(conn) {
+                        Ok(_) => {
+                            let preview = if trimmed.len() > 60 {
+                                format!("{}...", &trimmed[..60])
+                            } else {
+                                trimmed.to_string()
                             };
-                            println!("  ⚠ Skipped ({}): {}", 
-                                if error_msg.contains("no such table") { "table not found" }
-                                else if error_msg.contains("already exists") { "already exists" }
-                                else if error_msg.contains("duplicate column") { "duplicate column" }
-                                else { "column not found" },
-                                preview);
-                            continue;
+                            println!("  ✓ {}", preview);
                         }
-                        
-                        eprintln!("  ✗ Error: {:?}", e);
-                        eprintln!("    Statement: {}", trimmed);
-                        return Err(e);
+                        Err(e) => {
+                            let error_msg = format!("{:?}", e);
+
+                            // Bu hataları atla - kritik değil
+                            if error_msg.contains("duplicate column") ||
+                               error_msg.contains("already exists") ||
+                               error_msg.contains("no such table") ||
+                               error_msg.contains("no such column") {
+                                let preview = if trimmed.len() > 40 {
+                                    format!("{}...", &trimmed[..40])
+                                } else {
+                                    trimmed.to_string()
+                                };
+                                println!("  ⚠ Skipped ({}): {}",
+                                    if error_msg.contains("no such table") { "table not found" }
+                                    else if error_msg.contains("already exists") { "already exists" }
+                                    else if error_msg.contains("duplicate column") { "duplicate column" }
+                                    else { "column not found" },
+                                    preview);
+                                continue;
+                            }
+
+                            eprintln!("  ✗ Migration FAILED: {:?}", e);
+                            eprintln!("    Statement: {}", trimmed);
+                            eprintln!("    Rolling back migration: {}", filename);
+                            return Err(e);
+                        }
                     }
                 }
             }
+
+            // Migration'ı işaretle
+            diesel::sql_query(
+                "INSERT INTO schema_migrations (version) VALUES (?1)"
+            )
+            .bind::<diesel::sql_types::Text, _>(filename)
+            .execute(conn)?;
+
+            Ok(())
+        });
+
+        match migration_result {
+            Ok(_) => println!("✅ Migration {} completed", filename),
+            Err(e) => {
+                eprintln!("❌ Migration {} ROLLED BACK due to error", filename);
+                return Err(e);
+            }
         }
-
-        // Migration'ı işaretle
-        diesel::sql_query(
-            "INSERT INTO schema_migrations (version) VALUES (?1)"
-        )
-        .bind::<diesel::sql_types::Text, _>(filename)
-        .execute(conn)?;
-
-        println!("Migration {} completed", filename);
     }
 
     Ok(())

@@ -19,9 +19,19 @@ pub fn create_backup(
     tenant_id_param: String,
     backup_dir: String,
 ) -> Result<BackupInfo, String> {
-    let db = state.db.lock().unwrap();
-    let pool = db.as_ref().ok_or("Database not initialized")?;
-    
+    use diesel::prelude::*;
+
+    // WAL checkpoint BEFORE backup (CRITICAL for consistency)
+    {
+        let db = state.db.lock().unwrap();
+        let pool = db.as_ref().ok_or("Database not initialized")?;
+        let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+        diesel::sql_query("PRAGMA wal_checkpoint(FULL)")
+            .execute(&mut conn)
+            .map_err(|e| format!("WAL checkpoint failed: {}", e))?;
+    }
+
     // Get database file path from connection
     let db_path = state.db_path.lock().unwrap();
     let source_path = db_path.as_ref().ok_or("Database path not set")?;
@@ -152,4 +162,97 @@ pub fn delete_backup(
         .map_err(|e| format!("Failed to delete backup: {}", e))?;
 
     Ok(())
+}
+
+/// Auto backup check (24 saat kontrolü)
+#[tauri::command]
+pub fn auto_backup_check(
+    state: State<AppState>,
+    tenant_id_param: String,
+    backup_dir: String,
+) -> Result<Option<BackupInfo>, String> {
+    let backup_base = PathBuf::from(&backup_dir);
+
+    // Dizin yoksa oluştur ve ilk backup'ı al
+    if !backup_base.exists() {
+        let backup_info = create_backup(state, tenant_id_param, backup_dir)?;
+        return Ok(Some(backup_info));
+    }
+
+    // Son backup zamanını bul
+    let entries = fs::read_dir(&backup_base)
+        .map_err(|e| format!("Failed to read backup directory: {}", e))?;
+
+    let mut last_backup_time: Option<std::time::SystemTime> = None;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "db") {
+                if let Ok(metadata) = fs::metadata(&path) {
+                    if let Ok(modified) = metadata.modified() {
+                        if last_backup_time.is_none() || modified > last_backup_time.unwrap() {
+                            last_backup_time = Some(modified);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 24 saatten eski ise yeni backup al
+    let needs_backup = if let Some(last_time) = last_backup_time {
+        let elapsed = std::time::SystemTime::now()
+            .duration_since(last_time)
+            .unwrap_or(std::time::Duration::from_secs(0));
+
+        elapsed.as_secs() > 86400 // 24 saat
+    } else {
+        true
+    };
+
+    if needs_backup {
+        let backup_info = create_backup(state, tenant_id_param, backup_dir)?;
+        Ok(Some(backup_info))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Eski backup'ları temizle
+#[tauri::command]
+pub fn cleanup_old_backups(
+    backup_dir: String,
+    days: u64,
+) -> Result<String, String> {
+    let backup_base = PathBuf::from(&backup_dir);
+
+    if !backup_base.exists() {
+        return Ok("No backups to clean".to_string());
+    }
+
+    let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86400);
+    let entries = fs::read_dir(&backup_base)
+        .map_err(|e| format!("Failed to read backup directory: {}", e))?;
+
+    let mut deleted = 0;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "db") {
+                if let Ok(metadata) = fs::metadata(&path) {
+                    if let Ok(modified) = metadata.modified() {
+                        if modified < cutoff {
+                            if fs::remove_file(&path).is_ok() {
+                                deleted += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(format!("Cleaned {} old backup(s)", deleted))
 }

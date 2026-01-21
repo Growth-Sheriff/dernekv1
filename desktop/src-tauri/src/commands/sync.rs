@@ -391,19 +391,41 @@ pub fn apply_sync_changes(
     Ok(applied)
 }
 
-/// Cihaz ID'sini döndür (hardware fingerprint)
+/// Cihaz ID'sini döndür (hardware fingerprint) - PERSISTENT
 #[tauri::command]
 pub fn get_device_id() -> Result<String, String> {
-    // TODO: Gerçek hardware fingerprint implementasyonu
-    // Şimdilik machine-uid veya benzeri bir kütüphane kullanılabilir
-    
-    // Geçici olarak hostname + random id kullanalım
+    use std::fs;
+
+    // Config dosyasından device_id oku
+    let config_dir = dirs::config_dir()
+        .ok_or("Config directory not found")?
+        .join("bader");
+
+    let device_id_file = config_dir.join("device_id.txt");
+
+    // Eğer dosya varsa oku
+    if device_id_file.exists() {
+        if let Ok(stored_id) = fs::read_to_string(&device_id_file) {
+            let trimmed = stored_id.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+
+    // Yoksa yeni generate et ve kaydet
     let hostname = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
-    
+
     let device_id = format!("{}_{}", hostname, uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000"));
-    
+
+    // Config klasörünü oluştur
+    fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+
+    // Device ID'yi kaydet
+    fs::write(&device_id_file, &device_id).map_err(|e| e.to_string())?;
+
     Ok(device_id)
 }
 

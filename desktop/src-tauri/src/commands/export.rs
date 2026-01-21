@@ -369,10 +369,15 @@ pub async fn export_gelirler_excel(
         alt_kategori: Option<String>,
     }
     
-    let gelirler: Vec<GelirRow> = diesel::sql_query(&query)
+    // MEMORY PROTECTION: 10K row limit
+    let gelirler: Vec<GelirRow> = diesel::sql_query(&format!("{} LIMIT 10000", &query))
         .load(&mut conn)
         .map_err(|e| e.to_string())?;
-    
+
+    if gelirler.len() >= 10000 {
+        eprintln!("⚠️ Excel export truncated: {} rows (max 10,000)", gelirler.len());
+    }
+
     // Excel dosyası oluştur
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("gelirler_{}.xlsx", timestamp);
@@ -475,10 +480,15 @@ pub async fn export_giderler_excel(
         alt_kategori: Option<String>,
     }
     
-    let giderler: Vec<GiderRow> = diesel::sql_query(&query)
+    // MEMORY PROTECTION: 10K row limit
+    let giderler: Vec<GiderRow> = diesel::sql_query(&format!("{} LIMIT 10000", &query))
         .load(&mut conn)
         .map_err(|e| e.to_string())?;
-    
+
+    if giderler.len() >= 10000 {
+        eprintln!("⚠️ Excel export truncated: {} rows (max 10,000)", giderler.len());
+    }
+
     // Excel dosyası
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("giderler_{}.xlsx", timestamp);
@@ -565,13 +575,18 @@ pub async fn export_uyeler_excel(
         cikis_tarihi: Option<String>,
     }
     
+    // MEMORY PROTECTION: 10K row limit
     let uyeler: Vec<UyeRow> = diesel::sql_query(
-        "SELECT uye_no, ad, soyad, tc_no, telefon, email, uyelik_tipi, giris_tarihi, ozel_aidat_tutari, cikis_tarihi FROM uyeler WHERE tenant_id = ?1 ORDER BY uye_no ASC"
+        "SELECT uye_no, ad, soyad, tc_no, telefon, email, uyelik_tipi, giris_tarihi, ozel_aidat_tutari, cikis_tarihi FROM uyeler WHERE tenant_id = ?1 ORDER BY uye_no ASC LIMIT 10000"
     )
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
     .load(&mut conn)
     .map_err(|e| e.to_string())?;
-    
+
+    if uyeler.len() >= 10000 {
+        eprintln!("⚠️ Excel export truncated: {} rows (max 10,000)", uyeler.len());
+    }
+
     // Excel dosyası
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("uyeler_{}.xlsx", timestamp);
@@ -664,12 +679,17 @@ pub async fn export_demirbaslar_excel(
         durum: Option<String>,
     }
     
+    // MEMORY PROTECTION: 10K row limit
     let demirbaslar: Vec<DemirbasRow> = diesel::sql_query(
-        "SELECT demirbas_no, ad, kategori, marka_model, konum, alis_bedeli, guncel_deger, alis_tarihi, durum FROM demirbaslar WHERE tenant_id = ?1 AND is_active = 1 ORDER BY demirbas_no ASC"
+        "SELECT demirbas_no, ad, kategori, marka_model, konum, alis_bedeli, guncel_deger, alis_tarihi, durum FROM demirbaslar WHERE tenant_id = ?1 AND is_active = 1 ORDER BY demirbas_no ASC LIMIT 10000"
     )
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
     .load(&mut conn)
     .map_err(|e| e.to_string())?;
+
+    if demirbaslar.len() >= 10000 {
+        eprintln!("⚠️ Excel export truncated: {} rows (max 10,000)", demirbaslar.len());
+    }
     
     // Excel dosyası
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");

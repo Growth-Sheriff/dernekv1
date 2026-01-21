@@ -1525,3 +1525,118 @@ pub async fn delete_virman(
 
     Ok(())
 }
+
+/// Kasa bakiyesini gelir/gider/virman toplamlarından yeniden hesapla
+#[tauri::command]
+pub async fn recalculate_kasa_bakiye(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    kasa_id: String,
+) -> Result<String, String> {
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    #[derive(QueryableByName)]
+    struct SumRow {
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        total: f64,
+    }
+
+    // 1. Toplam gelir
+    let toplam_gelir = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM gelirler WHERE kasa_id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<SumRow>(&mut conn)
+    .map(|r| r.total)
+    .unwrap_or(0.0);
+
+    // 2. Toplam gider
+    let toplam_gider = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM giderler WHERE kasa_id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<SumRow>(&mut conn)
+    .map(|r| r.total)
+    .unwrap_or(0.0);
+
+    // 3. Virman giriş (bu kasaya transfer edilen)
+    let virman_giris = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM virmanlar WHERE hedef_kasa_id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<SumRow>(&mut conn)
+    .map(|r| r.total)
+    .unwrap_or(0.0);
+
+    // 4. Virman çıkış (bu kasadan başka kasaya transfer)
+    let virman_cikis = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM virmanlar WHERE kaynak_kasa_id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<SumRow>(&mut conn)
+    .map(|r| r.total)
+    .unwrap_or(0.0);
+
+    // 5. Devir bakiye al
+    #[derive(QueryableByName)]
+    struct DevirRow {
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+        devir_bakiye: Option<f64>,
+    }
+
+    let devir = diesel::sql_query(
+        "SELECT devir_bakiye FROM kasalar WHERE id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<DevirRow>(&mut conn)
+    .map(|r| r.devir_bakiye.unwrap_or(0.0))
+    .unwrap_or(0.0);
+
+    // 6. Yeni bakiye hesapla
+    let yeni_bakiye = devir + toplam_gelir - toplam_gider + virman_giris - virman_cikis;
+    let fiziksel_bakiye = yeni_bakiye;
+    let serbest_bakiye = yeni_bakiye;
+
+    // 7. Kasa güncelle
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(
+        "UPDATE kasalar
+         SET bakiye = ?1,
+             toplam_gelir = ?2,
+             toplam_gider = ?3,
+             virman_giris = ?4,
+             virman_cikis = ?5,
+             fiziksel_bakiye = ?6,
+             serbest_bakiye = ?7,
+             updated_at = ?8
+         WHERE id = ?9 AND tenant_id = ?10"
+    )
+    .bind::<diesel::sql_types::Double, _>(yeni_bakiye)
+    .bind::<diesel::sql_types::Double, _>(toplam_gelir)
+    .bind::<diesel::sql_types::Double, _>(toplam_gider)
+    .bind::<diesel::sql_types::Double, _>(virman_giris)
+    .bind::<diesel::sql_types::Double, _>(virman_cikis)
+    .bind::<diesel::sql_types::Double, _>(fiziksel_bakiye)
+    .bind::<diesel::sql_types::Double, _>(serbest_bakiye)
+    .bind::<diesel::sql_types::Text, _>(&now)
+    .bind::<diesel::sql_types::Text, _>(&kasa_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .execute(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "Kasa bakiyesi yeniden hesaplandı: {} TL (Gelir: {}, Gider: {}, Virman Giriş: {}, Virman Çıkış: {})",
+        yeni_bakiye, toplam_gelir, toplam_gider, virman_giris, virman_cikis
+    ))
+}

@@ -702,6 +702,7 @@ pub async fn coklu_yil_odeme(
                 notlar: Some("Çoklu yıl ödemesi".to_string()),
                 gelir_id: None,
                 aktarim_durumu: Some("Bekliyor".to_string()),
+                version: 1,
                 odeme_tarihi: Some(data.odeme_tarihi.clone()),
                 created_at: chrono::Utc::now().to_rfc3339(),
                 updated_at: chrono::Utc::now().to_rfc3339(),
@@ -1043,69 +1044,76 @@ pub async fn add_aidat_odeme_with_gelir(
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
-    
-    // 1. Mevcut aidat kaydını çek
-    let current_aidat: AidatTakip = {
-        use crate::db::schema::aidat_takip::dsl::*;
-        aidat_takip
-            .filter(id.eq(&aidat_id))
-            .filter(tenant_id.eq(&tenant_id_param))
-            .first(&mut conn)
-            .map_err(|e| format!("Aidat kaydı bulunamadı: {}", e))?
-    };
-    
-    // Yeni ödenen miktarı hesapla
-    let yeni_odenen = current_aidat.odenen + odeme_tutari;
-    let yeni_kalan = current_aidat.tutar - yeni_odenen;
-    let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else { "kismi_odendi" };
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let gelir_id = Uuid::new_v4().to_string();
-    
-    // 2. Gelir kaydı oluştur
-    diesel::sql_query(
-        "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, aidat_id, makbuz_no, is_active, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&gelir_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&kasa_id)
-    .bind::<diesel::sql_types::Text, _>("Aidat")
-    .bind::<diesel::sql_types::Double, _>(odeme_tutari)
-    .bind::<diesel::sql_types::Text, _>(&today)
-    .bind::<diesel::sql_types::Text, _>(format!("Aidat ödemesi - {} {}", current_aidat.yil, current_aidat.ay))
-    .bind::<diesel::sql_types::Text, _>(&aidat_id)
-    .bind::<diesel::sql_types::Text, _>(format!("AIDAT-{}", &gelir_id[..8]))
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
-    .map_err(|e| format!("Gelir kaydı oluşturulamadı: {}", e))?;
-    
-    // 3. Kasa bakiyesini güncelle
-    diesel::sql_query(
-        "UPDATE kasalar SET bakiye = bakiye + ?1, toplam_gelir = toplam_gelir + ?1, updated_at = ?2 WHERE id = ?3"
-    )
-    .bind::<diesel::sql_types::Double, _>(odeme_tutari)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&kasa_id)
-    .execute(&mut conn)
-    .map_err(|e| format!("Kasa güncellenemedi: {}", e))?;
-    
-    // 4. Aidat kaydını güncelle (gelir_id ile ilişkilendir)
-    diesel::sql_query(
-        "UPDATE aidat_takip 
-         SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, gelir_id = ?5, gelire_aktarildi = 1, updated_at = ?6
-         WHERE id = ?7"
-    )
-    .bind::<diesel::sql_types::Double, _>(yeni_odenen)
-    .bind::<diesel::sql_types::Double, _>(yeni_kalan)
-    .bind::<diesel::sql_types::Text, _>(yeni_durum)
-    .bind::<diesel::sql_types::Text, _>(&today)
-    .bind::<diesel::sql_types::Text, _>(&gelir_id)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&aidat_id)
-    .execute(&mut conn)
-    .map_err(|e| format!("Aidat güncellenemedi: {}", e))?;
-    
+
+    // TRANSACTION START - Critical for data consistency
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // 1. Mevcut aidat kaydını çek
+        let current_aidat: AidatTakip = {
+            use crate::db::schema::aidat_takip::dsl::*;
+            aidat_takip
+                .filter(id.eq(&aidat_id))
+                .filter(tenant_id.eq(&tenant_id_param))
+                .first(conn)?
+        };
+
+        // Yeni ödenen miktarı hesapla
+        let yeni_odenen = current_aidat.odenen + odeme_tutari;
+        let yeni_kalan = current_aidat.tutar - yeni_odenen;
+        let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else { "kismi_odendi" };
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let gelir_id = Uuid::new_v4().to_string();
+
+        // 2. Gelir kaydı oluştur
+        diesel::sql_query(
+            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, aidat_id, makbuz_no, is_active, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?10)"
+        )
+        .bind::<diesel::sql_types::Text, _>(&gelir_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&kasa_id)
+        .bind::<diesel::sql_types::Text, _>("Aidat")
+        .bind::<diesel::sql_types::Double, _>(odeme_tutari)
+        .bind::<diesel::sql_types::Text, _>(&today)
+        .bind::<diesel::sql_types::Text, _>(format!("Aidat ödemesi - {} {}", current_aidat.yil, current_aidat.ay))
+        .bind::<diesel::sql_types::Text, _>(&aidat_id)
+        .bind::<diesel::sql_types::Text, _>(format!("AIDAT-{}", &gelir_id[..8]))
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(conn)?;
+
+        // 3. Kasa bakiyesini güncelle
+        diesel::sql_query(
+            "UPDATE kasalar SET bakiye = bakiye + ?1, toplam_gelir = toplam_gelir + ?1, updated_at = ?2 WHERE id = ?3"
+        )
+        .bind::<diesel::sql_types::Double, _>(odeme_tutari)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&kasa_id)
+        .execute(conn)?;
+
+        // 4. Aidat kaydını güncelle (gelir_id ile ilişkilendir) + version check
+        let affected = diesel::sql_query(
+            "UPDATE aidat_takip
+             SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, gelir_id = ?5, gelire_aktarildi = 1, version = version + 1, updated_at = ?6
+             WHERE id = ?7 AND version = ?8"
+        )
+        .bind::<diesel::sql_types::Double, _>(yeni_odenen)
+        .bind::<diesel::sql_types::Double, _>(yeni_kalan)
+        .bind::<diesel::sql_types::Text, _>(yeni_durum)
+        .bind::<diesel::sql_types::Text, _>(&today)
+        .bind::<diesel::sql_types::Text, _>(&gelir_id)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&aidat_id)
+        .bind::<diesel::sql_types::Integer, _>(current_aidat.version)
+        .execute(conn)?;
+
+        if affected == 0 {
+            return Err(diesel::result::Error::RollbackTransaction);
+        }
+
+        Ok(())
+    })
+    .map_err(|e| format!("Transaction failed: {}", e))?;
+
     Ok("Ödeme kaydedildi, gelir oluşturuldu ve kasa güncellendi".to_string())
 }
 
@@ -1477,6 +1485,70 @@ pub async fn get_uye_borc_durumlari(
             });
         }
     }
-    
+
     Ok(results)
+}
+
+// ============================================================================
+// HELPER: Aidat tutar hesaplama
+// ============================================================================
+
+/// Üye için aidat tutarını hesapla (tanım + üye özel durumu)
+pub fn calculate_uye_aidat_tutari(
+    conn: &mut diesel::sqlite::SqliteConnection,
+    tenant_id: &str,
+    uye_id: &str,
+    yil: i32,
+) -> Result<f64, diesel::result::Error> {
+    use crate::db::schema::uyeler_basic;
+
+    // 1. Üyeyi al
+    #[derive(QueryableByName)]
+    struct UyeTutarRow {
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+        ozel_aidat_tutari: Option<f64>,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Double>)]
+        aidat_indirimi_yuzde: Option<f64>,
+    }
+
+    let uye = diesel::sql_query(
+        "SELECT ozel_aidat_tutari, aidat_indirimi_yuzde FROM uyeler WHERE id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(uye_id)
+    .bind::<diesel::sql_types::Text, _>(tenant_id)
+    .get_result::<UyeTutarRow>(conn)?;
+
+    // 2. Üyenin özel tutarı varsa onu kullan
+    if let Some(ozel_tutar) = uye.ozel_aidat_tutari {
+        if ozel_tutar > 0.0 {
+            return Ok(ozel_tutar);
+        }
+    }
+
+    // 3. Aidat tanımından genel tutarı al
+    #[derive(QueryableByName)]
+    struct TanimRow {
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        tutar: f64,
+    }
+
+    let tanim_tutar = diesel::sql_query(
+        "SELECT tutar FROM aidat_tanimlari WHERE tenant_id = ?1 AND yil = ?2 AND is_active = 1"
+    )
+    .bind::<diesel::sql_types::Text, _>(tenant_id)
+    .bind::<diesel::sql_types::Integer, _>(yil)
+    .get_result::<TanimRow>(conn)
+    .map(|r| r.tutar)
+    .unwrap_or(0.0);
+
+    // 4. İndirim varsa uygula
+    if let Some(indirim_yuzde) = uye.aidat_indirimi_yuzde {
+        if indirim_yuzde > 0.0 {
+            let indirim_carpani = 1.0 - (indirim_yuzde / 100.0);
+            return Ok(tanim_tutar * indirim_carpani);
+        }
+    }
+
+    // 5. Normal tutar
+    Ok(tanim_tutar)
 }

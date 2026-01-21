@@ -90,28 +90,39 @@ pub fn get_uyeler(
     let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    let mut query = "SELECT * FROM uyeler WHERE tenant_id = ?1".to_string();
-    let mut params: Vec<String> = vec![tenant_id_param.clone()];
-    
-    if let Some(d) = durum {
-        query.push_str(" AND durum = ?2");
-        params.push(d);
-    }
-    
-    query.push_str(" ORDER BY created_at DESC LIMIT ?");
-    query.push_str(&(params.len() + 1).to_string());
-    query.push_str(" OFFSET ?");
-    query.push_str(&(params.len() + 2).to_string());
-    
     let limit_val = limit.unwrap_or(100);
     let skip_val = skip.unwrap_or(0);
 
-    diesel::sql_query(&query)
-        .bind::<diesel::sql_types::Text, _>(&params[0])
-        .bind::<diesel::sql_types::BigInt, _>(limit_val)
-        .bind::<diesel::sql_types::BigInt, _>(skip_val)
-        .load::<Uye>(&mut conn)
-        .map_err(|e| e.to_string())
+    // Pagination query with proper binding
+    match durum {
+        Some(d) => {
+            diesel::sql_query(
+                "SELECT * FROM uyeler
+                 WHERE tenant_id = ?1 AND durum = ?2
+                 ORDER BY created_at DESC
+                 LIMIT ?3 OFFSET ?4"
+            )
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&d)
+            .bind::<diesel::sql_types::BigInt, _>(limit_val)
+            .bind::<diesel::sql_types::BigInt, _>(skip_val)
+            .load::<Uye>(&mut conn)
+            .map_err(|e| e.to_string())
+        }
+        None => {
+            diesel::sql_query(
+                "SELECT * FROM uyeler
+                 WHERE tenant_id = ?1
+                 ORDER BY created_at DESC
+                 LIMIT ?2 OFFSET ?3"
+            )
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::BigInt, _>(limit_val)
+            .bind::<diesel::sql_types::BigInt, _>(skip_val)
+            .load::<Uye>(&mut conn)
+            .map_err(|e| e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -223,55 +234,141 @@ pub fn update_uye(
 ) -> Result<Uye, String> {
     // TENANT ISOLATION: Verify access
     state.verify_tenant_access(&tenant_id_param)?;
-    
+
     {
         let db = state.db.lock().unwrap();
         let pool = db.as_ref().ok_or("Database not initialized")?;
         let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-        let mut updates = vec![];
-        
-        // SQL injection'dan korunmak için tırnak ve backslash karakterlerini escape et
-        fn escape_sql(s: &str) -> String {
-            s.replace('\'', "''").replace('\\', "\\\\")
-        }
-        
+        let now = Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        // Parameterized queries - SQL injection safe
         if let Some(ad) = &data.ad {
-            updates.push(format!("ad = '{}'", escape_sql(ad)));
+            diesel::sql_query("UPDATE uyeler SET ad = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(ad)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
         if let Some(soyad) = &data.soyad {
-            updates.push(format!("soyad = '{}'", escape_sql(soyad)));
+            diesel::sql_query("UPDATE uyeler SET soyad = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(soyad)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
         if let Some(telefon) = &data.telefon {
-            updates.push(format!("telefon = '{}'", escape_sql(telefon)));
+            diesel::sql_query("UPDATE uyeler SET telefon = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(telefon)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
+        if let Some(telefon2) = &data.telefon2 {
+            diesel::sql_query("UPDATE uyeler SET telefon2 = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(telefon2)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
+        }
+
         if let Some(email) = &data.email {
-            updates.push(format!("email = '{}'", escape_sql(email)));
+            diesel::sql_query("UPDATE uyeler SET email = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(email)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
         if let Some(adres) = &data.adres {
-            updates.push(format!("adres = '{}'", escape_sql(adres)));
+            diesel::sql_query("UPDATE uyeler SET adres = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(adres)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
         if let Some(cikis_tarihi) = &data.cikis_tarihi {
-            updates.push(format!("cikis_tarihi = '{}'", escape_sql(cikis_tarihi)));
+            diesel::sql_query("UPDATE uyeler SET cikis_tarihi = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(cikis_tarihi)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
         if let Some(durum) = &data.durum {
-            updates.push(format!("durum = '{}'", escape_sql(durum)));
+            diesel::sql_query("UPDATE uyeler SET durum = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(durum)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
         }
+
+        if let Some(ozel_aidat_tutari) = data.ozel_aidat_tutari {
+            diesel::sql_query("UPDATE uyeler SET ozel_aidat_tutari = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Double, _>(ozel_aidat_tutari)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
+        }
+
+        if let Some(aidat_indirimi_yuzde) = data.aidat_indirimi_yuzde {
+            diesel::sql_query("UPDATE uyeler SET aidat_indirimi_yuzde = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Double, _>(aidat_indirimi_yuzde)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
+        }
+
+        if let Some(referans_uye_id) = &data.referans_uye_id {
+            diesel::sql_query("UPDATE uyeler SET referans_uye_id = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(referans_uye_id)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
+        }
+
+        if let Some(ayrilma_nedeni) = &data.ayrilma_nedeni {
+            diesel::sql_query("UPDATE uyeler SET ayrilma_nedeni = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(ayrilma_nedeni)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(&mut conn)
+                .map_err(|e| e.to_string())?;
+        }
+
         if let Some(notlar) = &data.notlar {
-            updates.push(format!("notlar = '{}'", escape_sql(notlar)));
-        }
-
-        if !updates.is_empty() {
-            updates.push(format!("updated_at = '{}'", Utc::now().naive_utc()));
-
-            let query = format!(
-                "UPDATE uyeler SET {} WHERE id = '{}' AND tenant_id = '{}'",
-                updates.join(", "),
-                escape_sql(&uye_id),
-                escape_sql(&tenant_id_param)
-            );
-
-            diesel::sql_query(&query)
+            diesel::sql_query("UPDATE uyeler SET notlar = ?1, updated_at = ?2 WHERE id = ?3 AND tenant_id = ?4")
+                .bind::<diesel::sql_types::Text, _>(notlar)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&uye_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
                 .execute(&mut conn)
                 .map_err(|e| e.to_string())?;
         }
@@ -324,6 +421,40 @@ pub fn delete_uye(
         return Err(format!(
             "Bu üyeye ait {} aile üyesi kaydı bulunmaktadır. Önce aile üyelerini silmeniz gerekmektedir.",
             aile_count
+        ));
+    }
+
+    // Referans kontrolü: Gelir kayıtları
+    let gelir_count: i64 = diesel::sql_query(
+        "SELECT COUNT(*) as count FROM gelirler WHERE uye_id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&uye_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<CountResult>(&mut conn)
+    .map(|r| r.count)
+    .unwrap_or(0);
+
+    if gelir_count > 0 {
+        return Err(format!(
+            "Bu üyeye ait {} gelir kaydı bulunmaktadır. Silme işlemi engellenmiştir.",
+            gelir_count
+        ));
+    }
+
+    // Referans kontrolü: Referans veren üyeler (bu üyeyi referans olarak gösteren)
+    let referans_count: i64 = diesel::sql_query(
+        "SELECT COUNT(*) as count FROM uyeler WHERE referans_uye_id = ?1 AND tenant_id = ?2"
+    )
+    .bind::<diesel::sql_types::Text, _>(&uye_id)
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .get_result::<CountResult>(&mut conn)
+    .map(|r| r.count)
+    .unwrap_or(0);
+
+    if referans_count > 0 {
+        return Err(format!(
+            "Bu üye {} başka üyenin referansı olarak gösterilmektedir. Önce referansları güncelleyin.",
+            referans_count
         ));
     }
 

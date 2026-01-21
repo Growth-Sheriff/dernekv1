@@ -141,6 +141,7 @@ pub struct AidatTakip {
     pub notlar: Option<String>,
     pub gelir_id: Option<String>,
     pub aktarim_durumu: Option<String>,
+    pub version: i32,
     pub created_at: String,
     pub updated_at: String,
 }
