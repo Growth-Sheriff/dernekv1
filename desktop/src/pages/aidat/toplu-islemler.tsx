@@ -32,11 +32,34 @@ interface Uye {
   ad_soyad: string;
 }
 
+interface UyelikTuruDagilim {
+  uye_turu: string;
+  adet: number;
+  ortalama_tutar: number;
+  toplam_tutar: number;
+}
+
+interface TopluAidatOnizleme {
+  success: boolean;
+  toplam_uye_sayisi: number;
+  borclandirilacak_uye_sayisi: number;
+  zaten_aidat_var: number;
+  uyelik_turu_dagilimi: UyelikTuruDagilim[];
+  ozel_tutarli_uyeler: number;
+  tanim_tutarli_uyeler: number;
+  varsayilan_tutarli_uyeler: number;
+  toplam_borclandirilacak_tutar: number;
+  ortalama_tutar: number;
+  uyarilar: string[];
+}
+
 const AidatTopluIslemlerPage: React.FC = () => {
   const tenant = useAuthStore((state) => state.tenant);
   const [activeTab, setActiveTab] = useState<'toplu' | 'coklu'>('toplu');
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showOnizleme, setShowOnizleme] = useState(false);
+  const [onizleme, setOnizleme] = useState<TopluAidatOnizleme | null>(null);
   const [result, setResult] = useState<any>(null);
   const [kasalar, setKasalar] = useState<any[]>([]);
   const [uyeler, setUyeler] = useState<Uye[]>([]);
@@ -99,13 +122,36 @@ const AidatTopluIslemlerPage: React.FC = () => {
     loadUyeler();
   }, [tenant]);
 
+  const handleOnizleme = async () => {
+    if (!tenant) return;
+    if (!topluForm.kasa_id) {
+      alert('Lütfen kasa seçiniz!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await invoke<TopluAidatOnizleme>('toplu_aidat_onizleme', {
+        tenantIdParam: tenant.id,
+        data: topluForm,
+      });
+      setOnizleme(result);
+      setShowOnizleme(true);
+    } catch (error) {
+      console.error('Önizleme hatası:', error);
+      alert('Önizleme yüklenemedi: ' + error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleTopluAidatOlustur = async () => {
     if (!tenant) return;
     if (!topluForm.kasa_id) {
       alert('Lütfen kasa seçiniz!');
       return;
     }
-    
+
     setLoading(true);
     try {
       const result = await invoke('toplu_aidat_olustur', {
@@ -114,6 +160,7 @@ const AidatTopluIslemlerPage: React.FC = () => {
       });
       setResult(result);
       setShowConfirm(false);
+      setShowOnizleme(false);
     } catch (error) {
       console.error('Hata:', error);
       alert('İşlem başarısız: ' + error);
@@ -279,31 +326,35 @@ const AidatTopluIslemlerPage: React.FC = () => {
               </Label>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="gelir"
-                checked={topluForm.otomatik_gelir_olustur}
-                onCheckedChange={(checked) =>
-                  setTopluForm({ ...topluForm, otomatik_gelir_olustur: checked as boolean })
-                }
-              />
-              <Label htmlFor="gelir" className="cursor-pointer">
-                Otomatik gelir kaydı oluştur
-              </Label>
-            </div>
-            <p className="text-xs text-gray-500 -mt-2 ml-6">
-              ✓ Aidat ödemeleri otomatik olarak gelir kaydı oluşturur
-              <br />
-              ✓ Kasa bakiyesi otomatik güncellenir
-            </p>
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertDescription className="text-sm text-blue-800">
+                <strong>ℹ️ Borçlandırma İşlemi</strong>
+                <div className="mt-2 space-y-1">
+                  <p>• Sadece aidat <strong>borç kaydı</strong> oluşturulur (durum: beklemede)</p>
+                  <p>• Gelir kaydı ve kasa güncellemesi <strong>ödeme yapıldığında</strong> gerçekleşir</p>
+                  <p>• Üyelik türüne göre farklı tutarlar uygulanabilir</p>
+                </div>
+              </AlertDescription>
+            </Alert>
 
-            <Button
-              onClick={() => setShowConfirm(true)}
-              className="w-full"
-              size="lg"
-            >
-              Aidatları Oluştur
-            </Button>
+            <div className="flex gap-3">
+              <Button
+                onClick={handleOnizleme}
+                disabled={loading}
+                variant="outline"
+                className="flex-1"
+                size="lg"
+              >
+                {loading ? 'Yükleniyor...' : '📊 Önizleme Göster'}
+              </Button>
+              <Button
+                onClick={() => setShowConfirm(true)}
+                className="flex-1"
+                size="lg"
+              >
+                Aidatları Oluştur
+              </Button>
+            </div>
           </div>
         </Card>
       )}
@@ -421,6 +472,114 @@ const AidatTopluIslemlerPage: React.FC = () => {
           </div>
         </Card>
       )}
+
+      {/* Önizleme Dialog */}
+      <Dialog open={showOnizleme} onOpenChange={setShowOnizleme}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>📊 Toplu Aidat Önizleme - {topluForm.yil}</DialogTitle>
+          </DialogHeader>
+          {onizleme && (
+            <div className="py-4 space-y-6">
+              {/* Özet Bilgiler */}
+              <div className="grid grid-cols-2 gap-4">
+                <Card className="p-4 bg-blue-50 border-blue-200">
+                  <div className="text-sm text-gray-600">Toplam Üye</div>
+                  <div className="text-2xl font-bold text-blue-700">{onizleme.toplam_uye_sayisi}</div>
+                </Card>
+                <Card className="p-4 bg-green-50 border-green-200">
+                  <div className="text-sm text-gray-600">Borçlandırılacak</div>
+                  <div className="text-2xl font-bold text-green-700">{onizleme.borclandirilacak_uye_sayisi}</div>
+                </Card>
+                <Card className="p-4 bg-yellow-50 border-yellow-200">
+                  <div className="text-sm text-gray-600">Zaten Aidat Var</div>
+                  <div className="text-2xl font-bold text-yellow-700">{onizleme.zaten_aidat_var}</div>
+                </Card>
+                <Card className="p-4 bg-purple-50 border-purple-200">
+                  <div className="text-sm text-gray-600">Toplam Tutar</div>
+                  <div className="text-2xl font-bold text-purple-700">
+                    ₺{onizleme.toplam_borclandirilacak_tutar.toLocaleString('tr-TR')}
+                  </div>
+                </Card>
+              </div>
+
+              {/* Üyelik Türü Dağılımı */}
+              {onizleme.uyelik_turu_dagilimi.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">Üyelik Türü Dağılımı</h3>
+                  <div className="space-y-2">
+                    {onizleme.uyelik_turu_dagilimi.map((dagilim, idx) => (
+                      <Card key={idx} className="p-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-medium text-gray-900">{dagilim.uye_turu}</div>
+                            <div className="text-sm text-gray-600">
+                              {dagilim.adet} üye • Ortalama: ₺{dagilim.ortalama_tutar.toLocaleString('tr-TR')}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-bold text-gray-900">
+                              ₺{dagilim.toplam_tutar.toLocaleString('tr-TR')}
+                            </div>
+                            <div className="text-xs text-gray-500">Toplam</div>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tutar Kaynağı */}
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3">Tutar Kaynağı</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <Card className="p-3 text-center">
+                    <div className="text-sm text-gray-600">Özel Tutar</div>
+                    <div className="text-xl font-bold text-blue-600">{onizleme.ozel_tutarli_uyeler}</div>
+                  </Card>
+                  <Card className="p-3 text-center">
+                    <div className="text-sm text-gray-600">Tanım</div>
+                    <div className="text-xl font-bold text-green-600">{onizleme.tanim_tutarli_uyeler}</div>
+                  </Card>
+                  <Card className="p-3 text-center">
+                    <div className="text-sm text-gray-600">Varsayılan</div>
+                    <div className="text-xl font-bold text-gray-600">{onizleme.varsayilan_tutarli_uyeler}</div>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Uyarılar */}
+              {onizleme.uyarilar.length > 0 && (
+                <Alert className="bg-yellow-50 border-yellow-200">
+                  <AlertDescription className="text-sm text-yellow-800">
+                    <strong>⚠️ Dikkat</strong>
+                    <ul className="mt-2 space-y-1 list-disc list-inside">
+                      {onizleme.uyarilar.map((uyari, idx) => (
+                        <li key={idx}>{uyari}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowOnizleme(false)}>
+              Kapat
+            </Button>
+            <Button
+              onClick={() => {
+                setShowOnizleme(false);
+                setShowConfirm(true);
+              }}
+              disabled={!onizleme || onizleme.borclandirilacak_uye_sayisi === 0}
+            >
+              Devam Et ve Oluştur
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmation Dialog */}
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>

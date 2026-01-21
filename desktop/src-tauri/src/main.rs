@@ -95,6 +95,7 @@ fn main() {
             commands::aidat::create_aidat,
             commands::aidat::hesapla_gecikme,
             commands::aidat::get_aidat_ozet,
+            commands::aidat::toplu_aidat_onizleme,  // YENİ - Önizleme ile UX iyileştirmesi
             commands::aidat::toplu_aidat_olustur,
             commands::aidat::toplu_aidat_kisi_bazli,  // YENİ - Kişi bazlı toplu aidat
             commands::aidat::coklu_yil_odeme,

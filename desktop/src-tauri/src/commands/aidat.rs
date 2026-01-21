@@ -415,6 +415,161 @@ pub struct TopluAidatResult {
     pub mesaj: String,
 }
 
+// Önizleme için üyelik türü dağılımı
+#[derive(Debug, Serialize)]
+pub struct UyelikTuruDagilim {
+    pub uye_turu: String,
+    pub adet: i32,
+    pub ortalama_tutar: f64,
+    pub toplam_tutar: f64,
+}
+
+// Toplu aidat önizleme sonucu
+#[derive(Debug, Serialize)]
+pub struct TopluAidatOnizleme {
+    pub success: bool,
+    pub toplam_uye_sayisi: i32,
+    pub borclandirilacak_uye_sayisi: i32,
+    pub zaten_aidat_var: i32,
+    pub uyelik_turu_dagilimi: Vec<UyelikTuruDagilim>,
+    pub ozel_tutarli_uyeler: i32,
+    pub tanim_tutarli_uyeler: i32,
+    pub varsayilan_tutarli_uyeler: i32,
+    pub toplam_borclandirilacak_tutar: f64,
+    pub ortalama_tutar: f64,
+    pub uyarilar: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn toplu_aidat_onizleme(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    data: TopluAidatRequest,
+) -> Result<TopluAidatOnizleme, String> {
+    use crate::db::schema::aidat_takip::dsl as aidat_dsl;
+    use std::collections::HashMap;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // 1. Aktif üyeleri getir
+    let uyeler: Vec<crate::db::models::Uye> = if data.sadece_aktif_uyeler {
+        diesel::sql_query("SELECT * FROM uyeler WHERE tenant_id = ?1 AND cikis_tarihi IS NULL")
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .load(&mut conn)
+            .map_err(|e| e.to_string())?
+    } else {
+        diesel::sql_query("SELECT * FROM uyeler WHERE tenant_id = ?1")
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .load(&mut conn)
+            .map_err(|e| e.to_string())?
+    };
+
+    let toplam_uye_sayisi = uyeler.len() as i32;
+    let mut borçlandirilacak = 0;
+    let mut zaten_aidat_var = 0;
+    let mut ozel_tutarli = 0;
+    let mut tanim_tutarli = 0;
+    let mut varsayilan_tutarli = 0;
+    let mut toplam_tutar = 0.0;
+    let mut uyarilar = Vec::new();
+
+    // Üyelik türü bazında istatistikler
+    let mut uyelik_turu_map: HashMap<String, (i32, f64)> = HashMap::new(); // (adet, toplam_tutar)
+
+    for uye in uyeler {
+        // Bu üyenin bu yıl için aidatı var mı kontrol et
+        let mevcut = aidat_dsl::aidat_takip
+            .filter(aidat_dsl::tenant_id.eq(&tenant_id_param))
+            .filter(aidat_dsl::uye_id.eq(&uye.id))
+            .filter(aidat_dsl::yil.eq(data.yil))
+            .first::<AidatTakip>(&mut conn)
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if mevcut.is_some() {
+            zaten_aidat_var += 1;
+            continue;
+        }
+
+        // Tutar hesaplama mantığı (toplu_aidat_olustur ile aynı)
+        let (uye_aidat_tutari, tutar_kaynak) = if let Some(ozel_tutar) = uye.ozel_aidat_tutari {
+            ozel_tutarli += 1;
+            (ozel_tutar, "ozel")
+        } else {
+            let uye_tipi = uye.uyelik_tipi.clone().unwrap_or_else(|| "Asil".to_string());
+            let tanim_tutar: Option<f64> = diesel::sql_query(
+                "SELECT tutar FROM aidat_tanimlari WHERE tenant_id = ?1 AND yil = ?2 AND uye_turu = ?3 AND is_active = 1"
+            )
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Integer, _>(data.yil)
+            .bind::<diesel::sql_types::Text, _>(&uye_tipi)
+            .get_result::<TutarRow>(&mut conn)
+            .ok()
+            .map(|r| r.tutar);
+
+            if let Some(tutar) = tanim_tutar {
+                tanim_tutarli += 1;
+                (tutar, "tanim")
+            } else {
+                varsayilan_tutarli += 1;
+                (data.varsayilan_tutar, "varsayilan")
+            }
+        };
+
+        borçlandirilacak += 1;
+        toplam_tutar += uye_aidat_tutari;
+
+        // Üyelik türü istatistiği
+        let uye_turu = uye.uyelik_tipi.clone().unwrap_or_else(|| "Asil".to_string());
+        let entry = uyelik_turu_map.entry(uye_turu).or_insert((0, 0.0));
+        entry.0 += 1;
+        entry.1 += uye_aidat_tutari;
+    }
+
+    // Uyarılar oluştur
+    if zaten_aidat_var > 0 {
+        uyarilar.push(format!("{} üyenin {} yılı için zaten aidat kaydı var, atlanacak", zaten_aidat_var, data.yil));
+    }
+    if varsayilan_tutarli > 0 {
+        uyarilar.push(format!("{} üye için varsayılan tutar (₺{}) kullanılacak", varsayilan_tutarli, data.varsayilan_tutar));
+    }
+    if borçlandirilacak == 0 {
+        uyarilar.push("Hiçbir üye borçlandırılmayacak!".to_string());
+    }
+
+    // Üyelik türü dağılımını oluştur
+    let mut uyelik_turu_dagilimi: Vec<UyelikTuruDagilim> = uyelik_turu_map
+        .into_iter()
+        .map(|(uye_turu, (adet, toplam))| {
+            UyelikTuruDagilim {
+                uye_turu,
+                adet,
+                ortalama_tutar: if adet > 0 { toplam / adet as f64 } else { 0.0 },
+                toplam_tutar: toplam,
+            }
+        })
+        .collect();
+
+    // Sıralama: En çok üyesi olan üyelik türü önce
+    uyelik_turu_dagilimi.sort_by(|a, b| b.adet.cmp(&a.adet));
+
+    Ok(TopluAidatOnizleme {
+        success: true,
+        toplam_uye_sayisi,
+        borclandirilacak_uye_sayisi: borçlandirilacak,
+        zaten_aidat_var,
+        uyelik_turu_dagilimi,
+        ozel_tutarli_uyeler: ozel_tutarli,
+        tanim_tutarli_uyeler: tanim_tutarli,
+        varsayilan_tutarli_uyeler: varsayilan_tutarli,
+        toplam_borclandirilacak_tutar: toplam_tutar,
+        ortalama_tutar: if borçlandirilacak > 0 { toplam_tutar / borçlandirilacak as f64 } else { 0.0 },
+        uyarilar,
+    })
+}
+
 #[tauri::command]
 pub async fn toplu_aidat_olustur(
     state: State<'_, crate::AppState>,
