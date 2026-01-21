@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Pencil, Trash2, User, TrendingUp } from 'lucide-react';
+import { Pencil, Trash2, User, TrendingUp, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ColumnConfig } from '@/types/columnConfig';
 
 interface Gelir {
   id: string;
@@ -19,22 +20,128 @@ interface GelirlerVirtualTableProps {
   gelirler: Gelir[];
   onEdit: (gelir: Gelir) => void;
   onDelete: (gelirId: string) => void;
+  columnConfig?: ColumnConfig | null;
+  onColumnSettings?: () => void;
 }
 
 export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
   gelirler,
   onEdit,
   onDelete,
+  columnConfig,
+  onColumnSettings,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Virtual scrolling konfigürasyonu
   const virtualizer = useVirtualizer({
     count: gelirler.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 65, // Tahmini satır yüksekliği (px)
-    overscan: 5, // Görünür alanın dışında kaç satır render edilsin
+    estimateSize: () => 65,
+    overscan: 5,
   });
+
+  // Sütun render fonksiyonları
+  const columnRenderers: Record<string, {
+    header: string;
+    render: (gelir: Gelir) => React.ReactNode;
+    className?: string;
+  }> = {
+    tarih: {
+      header: 'Tarih',
+      render: (gelir) => (
+        <span className="text-sm text-gray-900">
+          {new Date(gelir.tarih).toLocaleDateString('tr-TR')}
+        </span>
+      ),
+    },
+    tutar: {
+      header: 'Tutar',
+      className: 'text-right',
+      render: (gelir) => (
+        <span className="text-sm font-semibold text-green-600">
+          +₺{gelir.tutar.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      ),
+    },
+    aciklama: {
+      header: 'Açıklama',
+      render: (gelir) => (
+        <span className="text-sm text-gray-700 line-clamp-1">
+          {gelir.aciklama || '-'}
+        </span>
+      ),
+    },
+    makbuz_no: {
+      header: 'Makbuz No',
+      render: (gelir) => (
+        <span className="text-sm text-gray-600">
+          {gelir.makbuz_no || '-'}
+        </span>
+      ),
+    },
+    uye: {
+      header: 'Üye',
+      className: 'text-center',
+      render: (gelir) => (
+        gelir.uye_id ? (
+          <span className="inline-flex items-center justify-center w-7 h-7 bg-blue-100 text-blue-700 rounded-full">
+            <User className="w-4 h-4" />
+          </span>
+        ) : (
+          <span className="text-gray-400 text-xs">-</span>
+        )
+      ),
+    },
+    aidat: {
+      header: 'Aidat',
+      className: 'text-center',
+      render: (gelir) => (
+        gelir.aidat_id ? (
+          <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+            Aidat
+          </span>
+        ) : (
+          <span className="text-gray-400 text-xs">-</span>
+        )
+      ),
+    },
+    actions: {
+      header: 'İşlemler',
+      className: 'text-right',
+      render: (gelir) => (
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onEdit(gelir)}
+            title="Düzenle"
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(gelir.id)}
+            title="Sil"
+            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  };
+
+  // Config'e göre görünür sütunları belirle
+  const visibleColumns = useMemo(() => {
+    if (!columnConfig) {
+      return Object.keys(columnRenderers);
+    }
+
+    return columnConfig.order.filter(colId =>
+      columnConfig.visible.includes(colId) && columnRenderers[colId]
+    );
+  }, [columnConfig]);
 
   if (gelirler.length === 0) {
     return (
@@ -52,14 +159,32 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
     <div className="border rounded-lg overflow-hidden bg-white">
       {/* Header - Sabit */}
       <div className="bg-gray-50/50 border-b border-gray-100">
-        <div className="grid grid-cols-12 gap-4 px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          <div className="col-span-2">Tarih</div>
-          <div className="col-span-2 text-right">Tutar</div>
-          <div className="col-span-3">Açıklama</div>
-          <div className="col-span-2">Makbuz No</div>
-          <div className="col-span-1 text-center">Üye</div>
-          <div className="col-span-1 text-center">Aidat</div>
-          <div className="col-span-1 text-right">İşlemler</div>
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="grid gap-4 flex-1" style={{
+            gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`
+          }}>
+            {visibleColumns.map((colId) => {
+              const col = columnRenderers[colId];
+              return (
+                <div
+                  key={colId}
+                  className={`text-xs font-semibold text-gray-600 uppercase tracking-wide ${col.className || ''}`}
+                >
+                  {col.header}
+                </div>
+              );
+            })}
+          </div>
+
+          {onColumnSettings && (
+            <button
+              onClick={onColumnSettings}
+              className="ml-4 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Sütun Ayarları"
+            >
+              <Settings2 className="w-4 h-4 text-gray-600" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -67,7 +192,7 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
       <div
         ref={parentRef}
         className="overflow-auto"
-        style={{ height: '600px' }} // Sabit yükseklik - virtual scrolling için gerekli
+        style={{ height: '600px' }}
       >
         <div
           style={{
@@ -89,76 +214,18 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
-                  {/* Tarih */}
-                  <div className="col-span-2">
-                    <span className="text-sm text-gray-900">
-                      {new Date(gelir.tarih).toLocaleDateString('tr-TR')}
-                    </span>
-                  </div>
-
-                  {/* Tutar */}
-                  <div className="col-span-2 text-right">
-                    <span className="text-sm font-semibold text-green-600">
-                      +₺{gelir.tutar.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  {/* Açıklama */}
-                  <div className="col-span-3">
-                    <span className="text-sm text-gray-700 line-clamp-1">
-                      {gelir.aciklama || '-'}
-                    </span>
-                  </div>
-
-                  {/* Makbuz No */}
-                  <div className="col-span-2">
-                    <span className="text-sm text-gray-600">
-                      {gelir.makbuz_no || '-'}
-                    </span>
-                  </div>
-
-                  {/* Üye */}
-                  <div className="col-span-1 text-center">
-                    {gelir.uye_id ? (
-                      <span className="inline-flex items-center justify-center w-7 h-7 bg-blue-100 text-blue-700 rounded-full">
-                        <User className="w-4 h-4" />
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 text-xs">-</span>
-                    )}
-                  </div>
-
-                  {/* Aidat */}
-                  <div className="col-span-1 text-center">
-                    {gelir.aidat_id ? (
-                      <span className="inline-flex items-center px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
-                        Aidat
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 text-xs">-</span>
-                    )}
-                  </div>
-
-                  {/* İşlemler */}
-                  <div className="col-span-1 flex justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onEdit(gelir)}
-                      title="Düzenle"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDelete(gelir.id)}
-                      title="Sil"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                <div className="flex items-center px-6 py-4">
+                  <div className="grid gap-4 flex-1" style={{
+                    gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`
+                  }}>
+                    {visibleColumns.map((colId) => {
+                      const col = columnRenderers[colId];
+                      return (
+                        <div key={colId} className={col.className || ''}>
+                          {col.render(gelir)}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

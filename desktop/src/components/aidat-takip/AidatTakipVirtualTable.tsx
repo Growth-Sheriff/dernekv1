@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CreditCard, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { CreditCard, CheckCircle, Clock, AlertCircle, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ColumnConfig } from '@/types/columnConfig';
 
 interface AidatTakip {
   id: string;
@@ -19,20 +20,23 @@ interface AidatTakip {
 interface AidatTakipVirtualTableProps {
   aidatlar: AidatTakip[];
   onOdemeEkle: (aidat: AidatTakip) => void;
+  columnConfig?: ColumnConfig | null;
+  onColumnSettings?: () => void;
 }
 
 export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
   aidatlar,
   onOdemeEkle,
+  columnConfig,
+  onColumnSettings,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Virtual scrolling konfigürasyonu
   const virtualizer = useVirtualizer({
     count: aidatlar.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 65, // Tahmini satır yüksekliği (px)
-    overscan: 5, // Görünür alanın dışında kaç satır render edilsin
+    estimateSize: () => 65,
+    overscan: 5,
   });
 
   const getDurumBadge = (durum: string): string => {
@@ -54,6 +58,97 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
     }
   };
 
+  // Sütun render fonksiyonları
+  const columnRenderers: Record<string, {
+    header: string;
+    render: (aidat: AidatTakip) => React.ReactNode;
+    className?: string;
+  }> = {
+    uye_ad_soyad: {
+      header: 'Üye',
+      render: (aidat) => <span className="text-sm font-medium text-gray-900">{aidat.uye_ad_soyad}</span>,
+    },
+    yil: {
+      header: 'Yıl',
+      render: (aidat) => <span className="text-sm text-gray-700">{aidat.yil}</span>,
+    },
+    tutar: {
+      header: 'Tutar',
+      className: 'text-right',
+      render: (aidat) => (
+        <span className="text-sm font-semibold text-gray-900">
+          ₺{aidat.tutar.toFixed(2)}
+        </span>
+      ),
+    },
+    odenen_tutar: {
+      header: 'Ödenen',
+      className: 'text-right',
+      render: (aidat) => (
+        <span className="text-sm font-semibold text-green-600">
+          ₺{aidat.odenen_tutar.toFixed(2)}
+        </span>
+      ),
+    },
+    kalan_tutar: {
+      header: 'Kalan',
+      className: 'text-right',
+      render: (aidat) => (
+        <span className="text-sm font-semibold text-red-600">
+          ₺{aidat.kalan_tutar.toFixed(2)}
+        </span>
+      ),
+    },
+    son_odeme_tarihi: {
+      header: 'Son Ödeme',
+      render: (aidat) => (
+        <span className="text-xs text-gray-600">
+          {aidat.son_odeme_tarihi
+            ? new Date(aidat.son_odeme_tarihi).toLocaleDateString('tr-TR')
+            : '-'
+          }
+        </span>
+      ),
+    },
+    durum: {
+      header: 'Durum',
+      render: (aidat) => (
+        <div className="flex items-center gap-2">
+          {getDurumIcon(aidat.durum)}
+          <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${getDurumBadge(aidat.durum)}`}>
+            {aidat.durum}
+          </span>
+        </div>
+      ),
+    },
+    actions: {
+      header: 'İşlem',
+      className: 'text-center',
+      render: (aidat) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onOdemeEkle(aidat)}
+          className="text-sm py-1.5 px-3 flex items-center gap-1.5"
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Ödeme Ekle</span>
+        </Button>
+      ),
+    },
+  };
+
+  // Config'e göre görünür sütunları belirle
+  const visibleColumns = useMemo(() => {
+    if (!columnConfig) {
+      return Object.keys(columnRenderers);
+    }
+
+    return columnConfig.order.filter(colId =>
+      columnConfig.visible.includes(colId) && columnRenderers[colId]
+    );
+  }, [columnConfig]);
+
   if (aidatlar.length === 0) {
     return (
       <div className="text-center py-16 text-gray-500">
@@ -70,14 +165,32 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
     <div className="border rounded-lg overflow-hidden bg-white">
       {/* Header - Sabit */}
       <div className="bg-gray-50/50 border-b border-gray-100">
-        <div className="grid grid-cols-12 gap-4 px-6 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          <div className="col-span-3">Üye</div>
-          <div className="col-span-1">Yıl</div>
-          <div className="col-span-2 text-right">Tutar</div>
-          <div className="col-span-2 text-right">Ödenen</div>
-          <div className="col-span-2 text-right">Kalan</div>
-          <div className="col-span-1">Durum</div>
-          <div className="col-span-1 text-center">İşlem</div>
+        <div className="flex items-center justify-between px-6 py-3">
+          <div className="grid gap-4 flex-1" style={{
+            gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`
+          }}>
+            {visibleColumns.map((colId) => {
+              const col = columnRenderers[colId];
+              return (
+                <div
+                  key={colId}
+                  className={`text-xs font-semibold text-gray-600 uppercase tracking-wide ${col.className || ''}`}
+                >
+                  {col.header}
+                </div>
+              );
+            })}
+          </div>
+
+          {onColumnSettings && (
+            <button
+              onClick={onColumnSettings}
+              className="ml-4 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Sütun Ayarları"
+            >
+              <Settings2 className="w-4 h-4 text-gray-600" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -85,7 +198,7 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
       <div
         ref={parentRef}
         className="overflow-auto"
-        style={{ height: '600px' }} // Sabit yükseklik - virtual scrolling için gerekli
+        style={{ height: '600px' }}
       >
         <div
           style={{
@@ -107,59 +220,18 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
-                  {/* Üye Ad Soyad */}
-                  <div className="col-span-3">
-                    <span className="text-sm font-medium text-gray-900">{aidat.uye_ad_soyad}</span>
-                  </div>
-
-                  {/* Yıl */}
-                  <div className="col-span-1">
-                    <span className="text-sm text-gray-700">{aidat.yil}</span>
-                  </div>
-
-                  {/* Tutar */}
-                  <div className="col-span-2 text-right">
-                    <span className="text-sm font-semibold text-gray-900">
-                      ₺{aidat.tutar.toFixed(2)}
-                    </span>
-                  </div>
-
-                  {/* Ödenen */}
-                  <div className="col-span-2 text-right">
-                    <span className="text-sm font-semibold text-green-600">
-                      ₺{aidat.odenen_tutar.toFixed(2)}
-                    </span>
-                  </div>
-
-                  {/* Kalan */}
-                  <div className="col-span-2 text-right">
-                    <span className="text-sm font-semibold text-red-600">
-                      ₺{aidat.kalan_tutar.toFixed(2)}
-                    </span>
-                  </div>
-
-                  {/* Durum */}
-                  <div className="col-span-1">
-                    <div className="flex items-center gap-2">
-                      {getDurumIcon(aidat.durum)}
-                      <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${getDurumBadge(aidat.durum)}`}>
-                        {aidat.durum}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* İşlem */}
-                  <div className="col-span-1 flex justify-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onOdemeEkle(aidat)}
-                      className="text-sm py-1.5 px-3 flex items-center gap-1.5"
-                    >
-                      <CreditCard className="w-4 h-4" />
-                      <span>Ödeme Ekle</span>
-                    </Button>
+                <div className="flex items-center px-6 py-4">
+                  <div className="grid gap-4 flex-1" style={{
+                    gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`
+                  }}>
+                    {visibleColumns.map((colId) => {
+                      const col = columnRenderers[colId];
+                      return (
+                        <div key={colId} className={col.className || ''}>
+                          {col.render(aidat)}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

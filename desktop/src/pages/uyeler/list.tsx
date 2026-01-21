@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { UyelerVirtualTable } from '@/components/uyeler/UyelerVirtualTable';
 import { useUyeler } from '@/hooks/useUyeler';
+import { ColumnSettingsModal } from '@/components/common/ColumnSettingsModal';
+import { useColumnConfig } from '@/hooks/useColumnConfig';
+import { UYELER_PAGE_CONFIG, PAGE_PRESETS } from '@/config/columnDefinitions';
+import { PAGE_KEYS } from '@/types/columnConfig';
 
 interface Uye {
   id: string;
@@ -46,6 +50,20 @@ export const UyelerListPage: React.FC = () => {
     durum: durum || null,
     limit: 1000, // Daha fazla kayıt yükle (virtual scrolling ile performans sorunu yok)
   });
+
+  // Column configuration
+  const [showColumnSettings, setShowColumnSettings] = React.useState(false);
+  const {
+    config: columnConfig,
+    isLoading: columnConfigLoading,
+    saveConfig: saveColumnConfig,
+    resetConfig: resetColumnConfig,
+  } = useColumnConfig({
+    pageKey: PAGE_KEYS.UYELER_LIST,
+    defaultVisible: UYELER_PAGE_CONFIG.defaultVisible,
+    defaultOrder: UYELER_PAGE_CONFIG.defaultColumns.map(c => c.id),
+  });
+
   const [showCreateModal, setShowCreateModal] = React.useState(false);
   const [showEditModal, setShowEditModal] = React.useState(false);
   const [editingUye, setEditingUye] = React.useState<Uye | null>(null);
@@ -1102,9 +1120,25 @@ export const UyelerListPage: React.FC = () => {
             onView={(id) => navigate(`/uyeler/${id}`)}
             onEdit={handleEdit}
             onDelete={(id, adSoyad) => handleDelete(id, adSoyad, { stopPropagation: () => {} } as any)}
+            columnConfig={columnConfig}
+            onColumnSettings={() => setShowColumnSettings(true)}
           />
         )}
       </div>
+
+      {/* Column Settings Modal */}
+      <ColumnSettingsModal
+        open={showColumnSettings}
+        onOpenChange={setShowColumnSettings}
+        columns={UYELER_PAGE_CONFIG.defaultColumns}
+        currentConfig={columnConfig || {
+          visible: UYELER_PAGE_CONFIG.defaultVisible,
+          order: UYELER_PAGE_CONFIG.defaultColumns.map(c => c.id),
+        }}
+        onSave={saveColumnConfig}
+        onReset={resetColumnConfig}
+        presets={PAGE_PRESETS[PAGE_KEYS.UYELER_LIST]}
+      />
     </div>
   );
 };

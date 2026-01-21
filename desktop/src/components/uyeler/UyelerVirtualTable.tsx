@@ -1,8 +1,9 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Eye, Pencil, Trash2 } from 'lucide-react';
+import { Eye, Pencil, Trash2, Settings2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import type { ColumnConfig } from '@/types/columnConfig';
 
 interface Uye {
   id: string;
@@ -30,6 +31,8 @@ interface UyelerVirtualTableProps {
   onView: (uyeId: string) => void;
   onEdit: (uye: Uye) => void;
   onDelete: (uyeId: string, adSoyad: string) => void;
+  columnConfig?: ColumnConfig | null;
+  onColumnSettings?: () => void;
 }
 
 export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
@@ -38,6 +41,8 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
   onView,
   onEdit,
   onDelete,
+  columnConfig,
+  onColumnSettings,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -45,8 +50,8 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
   const virtualizer = useVirtualizer({
     count: uyeler.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 60, // Tahmini satır yüksekliği (px)
-    overscan: 5, // Görünür alanın dışında kaç satır render edilsin
+    estimateSize: () => 60,
+    overscan: 5,
   });
 
   const getDurumBadge = (durum: string) => {
@@ -60,6 +65,123 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
+  // Sütun render fonksiyonları
+  const columnRenderers: Record<string, {
+    header: string;
+    render: (uye: Uye) => React.ReactNode;
+    className?: string;
+  }> = {
+    uye_no: {
+      header: 'Üye No',
+      render: (uye) => <span className="font-mono text-sm text-gray-900">{uye.uye_no}</span>,
+    },
+    tc_no: {
+      header: 'TC No',
+      render: (uye) => <span className="text-sm text-gray-600">{uye.tc_no}</span>,
+    },
+    ad_soyad: {
+      header: 'Ad Soyad',
+      render: (uye) => <span className="text-sm font-medium text-gray-900">{uye.ad_soyad}</span>,
+    },
+    uyelik_tipi: {
+      header: 'Üyelik Tipi',
+      render: (uye) => (
+        <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+          {uye.uyelik_tipi || 'Asil'}
+        </span>
+      ),
+    },
+    telefon: {
+      header: 'Telefon',
+      render: (uye) => <span className="text-sm text-gray-600">{uye.telefon || '-'}</span>,
+    },
+    email: {
+      header: 'E-posta',
+      render: (uye) => <span className="text-sm text-gray-600">{uye.email || '-'}</span>,
+    },
+    giris_tarihi: {
+      header: 'Giriş Tarihi',
+      render: (uye) => (
+        <span className="text-sm text-gray-600">
+          {new Date(uye.giris_tarihi).toLocaleDateString('tr-TR')}
+        </span>
+      ),
+    },
+    kalan_borc: {
+      header: 'Kalan Borç',
+      className: 'text-right',
+      render: (uye) => {
+        const borcDurumu = borcDurumlari[uye.id];
+        return borcDurumu ? (
+          <span
+            className={`text-sm font-semibold ${
+              borcDurumu.kalan_borc > 0 ? 'text-red-600' : 'text-green-600'
+            }`}
+          >
+            {borcDurumu.kalan_borc > 0
+              ? `₺${borcDurumu.kalan_borc.toLocaleString('tr-TR')}`
+              : '₺0'}
+          </span>
+        ) : (
+          <span className="text-sm text-gray-400">-</span>
+        );
+      },
+    },
+    durum: {
+      header: 'Durum',
+      render: (uye) => getDurumBadge(uye.durum),
+    },
+    actions: {
+      header: 'İşlemler',
+      className: 'text-right',
+      render: (uye) => (
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onView(uye.id)}
+            title="Detay"
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onEdit(uye)}
+            title="Düzenle"
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(uye.id, uye.ad_soyad)}
+            title="Sil"
+            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
+  };
+
+  // Config'e göre görünür sütunları belirle (order'a göre)
+  const visibleColumns = useMemo(() => {
+    if (!columnConfig) {
+      // Default: tüm sütunlar
+      return Object.keys(columnRenderers);
+    }
+
+    // Order'a göre sırala ve sadece visible olanları al
+    return columnConfig.order.filter(colId =>
+      columnConfig.visible.includes(colId) && columnRenderers[colId]
+    );
+  }, [columnConfig]);
+
+  // Grid columns hesapla (eşit dağılım)
+  const gridColsClass = `grid-cols-${Math.min(visibleColumns.length, 12)}`;
+
   if (uyeler.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -72,15 +194,32 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
     <div className="border rounded-lg overflow-hidden bg-white">
       {/* Header - Sabit */}
       <div className="bg-gray-50 border-b border-gray-200">
-        <div className="grid grid-cols-12 gap-4 px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-          <div className="col-span-1">Üye No</div>
-          <div className="col-span-2">TC No</div>
-          <div className="col-span-2">Ad Soyad</div>
-          <div className="col-span-1">Üyelik Tipi</div>
-          <div className="col-span-2">Telefon</div>
-          <div className="col-span-2 text-right">Kalan Borç</div>
-          <div className="col-span-1">Durum</div>
-          <div className="col-span-1 text-right">İşlemler</div>
+        <div className="flex items-center justify-between px-6 py-2">
+          <div className="grid gap-4 flex-1" style={{
+            gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`
+          }}>
+            {visibleColumns.map((colId) => {
+              const col = columnRenderers[colId];
+              return (
+                <div
+                  key={colId}
+                  className={`text-xs font-medium text-gray-500 uppercase tracking-wider ${col.className || ''}`}
+                >
+                  {col.header}
+                </div>
+              );
+            })}
+          </div>
+
+          {onColumnSettings && (
+            <button
+              onClick={onColumnSettings}
+              className="ml-4 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Sütun Ayarları"
+            >
+              <Settings2 className="w-4 h-4 text-gray-600" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -88,7 +227,7 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
       <div
         ref={parentRef}
         className="overflow-auto"
-        style={{ height: '600px' }} // Sabit yükseklik - virtual scrolling için gerekli
+        style={{ height: '600px' }}
       >
         <div
           style={{
@@ -99,7 +238,6 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const uye = uyeler[virtualRow.index];
-            const borcDurumu = borcDurumlari[uye.id];
 
             return (
               <div
@@ -111,83 +249,18 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <div className="grid grid-cols-12 gap-4 px-6 py-4 items-center">
-                  {/* Üye No */}
-                  <div className="col-span-1">
-                    <span className="font-mono text-sm text-gray-900">{uye.uye_no}</span>
-                  </div>
-
-                  {/* TC No */}
-                  <div className="col-span-2">
-                    <span className="text-sm text-gray-600">{uye.tc_no}</span>
-                  </div>
-
-                  {/* Ad Soyad */}
-                  <div className="col-span-2">
-                    <span className="text-sm font-medium text-gray-900">{uye.ad_soyad}</span>
-                  </div>
-
-                  {/* Üyelik Tipi */}
-                  <div className="col-span-1">
-                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                      {uye.uyelik_tipi || 'Asil'}
-                    </span>
-                  </div>
-
-                  {/* Telefon */}
-                  <div className="col-span-2">
-                    <span className="text-sm text-gray-600">{uye.telefon || '-'}</span>
-                  </div>
-
-                  {/* Kalan Borç */}
-                  <div className="col-span-2 text-right">
-                    {borcDurumu ? (
-                      <span
-                        className={`text-sm font-semibold ${
-                          borcDurumu.kalan_borc > 0 ? 'text-red-600' : 'text-green-600'
-                        }`}
-                      >
-                        {borcDurumu.kalan_borc > 0
-                          ? `₺${borcDurumu.kalan_borc.toLocaleString('tr-TR')}`
-                          : '₺0'}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-gray-400">-</span>
-                    )}
-                  </div>
-
-                  {/* Durum */}
-                  <div className="col-span-1">
-                    {getDurumBadge(uye.durum)}
-                  </div>
-
-                  {/* İşlemler */}
-                  <div className="col-span-1 flex justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onView(uye.id)}
-                      title="Detay"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onEdit(uye)}
-                      title="Düzenle"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDelete(uye.id, uye.ad_soyad)}
-                      title="Sil"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                <div className="flex items-center px-6 py-4">
+                  <div className="grid gap-4 flex-1" style={{
+                    gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`
+                  }}>
+                    {visibleColumns.map((colId) => {
+                      const col = columnRenderers[colId];
+                      return (
+                        <div key={colId} className={col.className || ''}>
+                          {col.render(uye)}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
