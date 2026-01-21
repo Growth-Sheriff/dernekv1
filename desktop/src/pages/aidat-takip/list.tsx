@@ -1,8 +1,10 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, CreditCard, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AidatTakipVirtualTable } from '@/components/aidat-takip/AidatTakipVirtualTable';
+import { useAidatTakip } from '@/hooks/useAidatTakip';
 
 interface AidatTakip {
   id: string;
@@ -42,16 +44,21 @@ interface Kasa {
 
 export const AidatTakipPage: React.FC = () => {
   const tenant = useAuthStore((state) => state.tenant);
-  
-  const [aidatlar, setAidatlar] = React.useState<AidatTakip[]>([]);
+
+  const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear());
+
+  // React Query hook ile veri çekme (cache + auto-refetch)
+  const { aidatlar, isLoading: loading, refetch } = useAidatTakip({
+    filterYil: selectedYear,
+    limit: 1000,
+  });
+
   const [uyeler, setUyeler] = React.useState<Uye[]>([]);
   const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
   const [selectedAidat, setSelectedAidat] = React.useState<AidatTakip | null>(null);
   const [odemeler, setOdemeler] = React.useState<AidatOdeme[]>([]);
-  const [loading, setLoading] = React.useState(true);
   const [showAidatForm, setShowAidatForm] = React.useState(false);
   const [showOdemeForm, setShowOdemeForm] = React.useState(false);
-  const [selectedYear, setSelectedYear] = React.useState(new Date().getFullYear());
   
   // Aidat Form
   const [uyeId, setUyeId] = React.useState<string>('');
@@ -69,15 +76,12 @@ export const AidatTakipPage: React.FC = () => {
   const [dekontNo, setDekontNo] = React.useState<string>('');
   const [odemeAciklama, setOdemeAciklama] = React.useState<string>('');
 
+  // React Query hook otomatik olarak tenant ve selectedYear değiştiğinde refetch yapar
   React.useEffect(() => {
-    if (!tenant) {
-      setLoading(false);
-      return;
-    }
+    if (!tenant) return;
     loadUyeler();
     loadKasalar();
-    loadAidatlar();
-  }, [tenant, selectedYear]);
+  }, [tenant]);
 
   const loadUyeler = async () => {
     if (!tenant) return;
@@ -109,27 +113,6 @@ export const AidatTakipPage: React.FC = () => {
     }
   };
 
-  const loadAidatlar = async () => {
-    if (!tenant) {
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      const result = await invoke<AidatTakip[]>('get_aidat_takip', {
-        tenantIdParam: tenant.id,
-        filterYil: selectedYear,
-        skip: 0,
-        limit: 1000,
-      });
-      setAidatlar(result);
-    } catch (error) {
-      console.error('Aidat takip yüklenemedi:', error);
-      alert('Aidat takip yüklenemedi: ' + error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadOdemeler = async (aidatId: string) => {
     if (!tenant) return;
@@ -176,15 +159,15 @@ export const AidatTakipPage: React.FC = () => {
       
       alert('✅ Aidat kaydı oluşturuldu!');
       setShowAidatForm(false);
-      
+
       // Form sıfırla
       setUyeId('');
       setYil(new Date().getFullYear());
       setAy(new Date().getMonth() + 1);
       setTutar('');
       setSonOdemeTarihi('');
-      
-      loadAidatlar();
+
+      refetch();
     } catch (error) {
       console.error('Aidat oluşturulamadı:', error);
       alert('❌ Aidat oluşturulamadı: ' + error);
@@ -228,12 +211,12 @@ export const AidatTakipPage: React.FC = () => {
       
       alert('✅ Ödeme kaydedildi ve gelir olarak işlendi!');
       setShowOdemeForm(false);
-      
+
       // Form sıfırla
       setOdemeTutari('');
       setOdemeTarihi(new Date().toISOString().split('T')[0]);
-      
-      loadAidatlar();
+
+      refetch();
     } catch (error) {
       console.error('Ödeme kaydedilemedi:', error);
       alert('❌ Ödeme kaydedilemedi: ' + error);
@@ -244,25 +227,6 @@ export const AidatTakipPage: React.FC = () => {
     setSelectedAidat(aidat);
     loadOdemeler(aidat.id);
     setShowOdemeForm(true);
-  };
-
-  const getDurumBadge = (durum: string) => {
-    const colors: Record<string, string> = {
-      'ÖDENDİ': 'bg-green-100 text-green-800',
-      'KISMİ': 'bg-yellow-100 text-yellow-800',
-      'ÖDENMEDİ': 'bg-gray-100 text-gray-800',
-      'GECİKMİŞ': 'bg-red-100 text-red-800',
-    };
-    return colors[durum] || colors['ÖDENMEDİ'];
-  };
-
-  const getDurumIcon = (durum: string) => {
-    switch (durum) {
-      case 'ÖDENDİ': return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case 'KISMİ': return <Clock className="w-5 h-5 text-yellow-600" />;
-      case 'GECİKMİŞ': return <AlertCircle className="w-5 h-5 text-red-600" />;
-      default: return <Clock className="w-5 h-5 text-gray-600" />;
-    }
   };
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
@@ -562,85 +526,19 @@ export const AidatTakipPage: React.FC = () => {
       </Dialog>
 
       {/* Aidat Listesi */}
-      <div className="card-macos">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50/50 border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Üye</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Yıl</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Tutar</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Ödenen</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Kalan</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Durum</th>
-                <th className="px-6 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">İşlem</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center text-gray-500">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      <span>Yükleniyor...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : aidatlar.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center text-gray-500">
-                    <div className="flex flex-col items-center gap-2">
-                      <CreditCard className="w-12 h-12 text-gray-300" />
-                      <p className="text-sm font-medium">Henüz aidat kaydı yok</p>
-                      <p className="text-xs text-gray-400">Yeni aidat kaydı eklemek için yukarıdaki butonu kullanın</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                aidatlar.map((aidat) => (
-                  <tr
-                    key={aidat.id}
-                    className="hover:bg-gray-50/50 transition-all duration-150"
-                  >
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {aidat.uye_ad_soyad}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {aidat.yil}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">
-                      {aidat.tutar.toFixed(2)} ₺
-                    </td>
-                    <td className="px-6 py-4 text-sm font-semibold text-green-600">
-                      {aidat.odenen_tutar.toFixed(2)} ₺
-                    </td>
-                    <td className="px-6 py-4 text-sm font-semibold text-red-600">
-                      {aidat.kalan_tutar.toFixed(2)} ₺
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        {getDurumIcon(aidat.durum)}
-                        <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full ${getDurumBadge(aidat.durum)}`}>
-                          {aidat.durum}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleShowOdemeler(aidat)}
-                        className="btn-macos-secondary text-sm py-1.5 px-3 flex items-center gap-1.5 mx-auto"
-                      >
-                        <CreditCard className="w-4 h-4" />
-                        <span>Ödeme Ekle</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {loading ? (
+        <div className="card-macos p-8 text-center text-gray-600">
+          <div className="flex items-center justify-center gap-2">
+            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span>Yükleniyor...</span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <AidatTakipVirtualTable
+          aidatlar={aidatlar}
+          onOdemeEkle={handleShowOdemeler}
+        />
+      )}
     </div>
   );
 };
