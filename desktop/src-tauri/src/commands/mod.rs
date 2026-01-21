@@ -29,3 +29,4 @@ pub mod vadeli_islemler;
 pub mod cariler;
 pub mod aidat_tanimlari;
 pub mod kur;
+pub mod gorunum;

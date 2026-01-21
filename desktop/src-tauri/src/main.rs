@@ -266,6 +266,11 @@ fn main() {
             commands::kur::set_kur,
             commands::kur::delete_kur,
             commands::kur::get_kur_gecmisi,
+            // Görünüm Tercihleri (Sütun Özelleştirme)
+            commands::gorunum::save_column_preferences,
+            commands::gorunum::get_column_preferences,
+            commands::gorunum::reset_column_preferences,
+            commands::gorunum::get_all_column_preferences,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
