@@ -64,6 +64,7 @@ export const GelirlerPage: React.FC = () => {
     config: columnConfig,
     saveConfig: saveColumnConfig,
     resetConfig: resetColumnConfig,
+    toggleSort,
   } = useColumnConfig({
     pageKey: PAGE_KEYS.GELIRLER_LIST,
     defaultVisible: GELIRLER_PAGE_CONFIG.defaultVisible,
@@ -735,6 +736,7 @@ export const GelirlerPage: React.FC = () => {
             onDelete={handleDelete}
             columnConfig={columnConfig}
             onColumnSettings={() => setShowColumnSettings(true)}
+            onSort={toggleSort}
           />
         )}
       </div>

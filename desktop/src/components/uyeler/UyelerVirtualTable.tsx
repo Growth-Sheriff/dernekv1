@@ -1,9 +1,10 @@
 import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Eye, Pencil, Trash2, Settings2 } from 'lucide-react';
+import { Eye, Pencil, Trash2, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { ColumnConfig } from '@/types/columnConfig';
+import { sortData } from '@/utils/sorting';
 
 interface Uye {
   id: string;
@@ -33,6 +34,7 @@ interface UyelerVirtualTableProps {
   onDelete: (uyeId: string, adSoyad: string) => void;
   columnConfig?: ColumnConfig | null;
   onColumnSettings?: () => void;
+  onSort?: (columnId: string) => void;
 }
 
 export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
@@ -43,12 +45,18 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
   onDelete,
   columnConfig,
   onColumnSettings,
+  onSort,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Apply sorting to data
+  const sortedUyeler = useMemo(() => {
+    return sortData(uyeler, columnConfig?.sort);
+  }, [uyeler, columnConfig?.sort]);
+
   // Virtual scrolling konfigürasyonu
   const virtualizer = useVirtualizer({
-    count: uyeler.length,
+    count: sortedUyeler.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 60,
     overscan: 5,
@@ -182,7 +190,18 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
   // Grid columns hesapla (eşit dağılım)
   const gridColsClass = `grid-cols-${Math.min(visibleColumns.length, 12)}`;
 
-  if (uyeler.length === 0) {
+  // Sort icon helper
+  const getSortIcon = (columnId: string) => {
+    if (!columnConfig?.sort || columnConfig.sort.columnId !== columnId) {
+      return <ArrowUpDown className="w-3 h-3 text-gray-400" />;
+    }
+    if (columnConfig.sort.direction === 'asc') {
+      return <ArrowUp className="w-3 h-3 text-blue-600" />;
+    }
+    return <ArrowDown className="w-3 h-3 text-blue-600" />;
+  };
+
+  if (sortedUyeler.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
         <p>Üye bulunamadı</p>
@@ -200,12 +219,24 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
           }}>
             {visibleColumns.map((colId) => {
               const col = columnRenderers[colId];
+              const isSortable = colId !== 'actions'; // Actions column is not sortable
+
               return (
                 <div
                   key={colId}
                   className={`text-xs font-medium text-gray-500 uppercase tracking-wider ${col.className || ''}`}
                 >
-                  {col.header}
+                  {isSortable && onSort ? (
+                    <button
+                      onClick={() => onSort(colId)}
+                      className="flex items-center gap-1 hover:text-gray-700 transition-colors"
+                    >
+                      <span>{col.header}</span>
+                      {getSortIcon(colId)}
+                    </button>
+                  ) : (
+                    <span>{col.header}</span>
+                  )}
                 </div>
               );
             })}
@@ -237,7 +268,7 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
           }}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
-            const uye = uyeler[virtualRow.index];
+            const uye = sortedUyeler[virtualRow.index];
 
             return (
               <div
@@ -272,8 +303,8 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
       {/* Footer - Toplam kayıt sayısı */}
       <div className="bg-gray-50 border-t border-gray-200 px-6 py-3">
         <div className="text-sm text-gray-600">
-          Toplam <span className="font-semibold">{uyeler.length}</span> üye gösteriliyor
-          {virtualizer.getVirtualItems().length < uyeler.length && (
+          Toplam <span className="font-semibold">{sortedUyeler.length}</span> üye gösteriliyor
+          {virtualizer.getVirtualItems().length < sortedUyeler.length && (
             <span className="ml-2 text-xs text-gray-500">
               (Ekranda: {virtualizer.getVirtualItems().length})
             </span>

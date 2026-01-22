@@ -1,8 +1,9 @@
 import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { CreditCard, CheckCircle, Clock, AlertCircle, Settings2 } from 'lucide-react';
+import { CreditCard, CheckCircle, Clock, AlertCircle, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ColumnConfig } from '@/types/columnConfig';
+import { sortData } from '@/utils/sorting';
 
 interface AidatTakip {
   id: string;
@@ -22,6 +23,7 @@ interface AidatTakipVirtualTableProps {
   onOdemeEkle: (aidat: AidatTakip) => void;
   columnConfig?: ColumnConfig | null;
   onColumnSettings?: () => void;
+  onSort?: (columnId: string) => void;
 }
 
 export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
@@ -29,11 +31,17 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
   onOdemeEkle,
   columnConfig,
   onColumnSettings,
+  onSort,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Apply sorting to data
+  const sortedAidatlar = useMemo(() => {
+    return sortData(aidatlar, columnConfig?.sort);
+  }, [aidatlar, columnConfig?.sort]);
+
   const virtualizer = useVirtualizer({
-    count: aidatlar.length,
+    count: sortedAidatlar.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 65,
     overscan: 5,
@@ -149,7 +157,18 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
     );
   }, [columnConfig]);
 
-  if (aidatlar.length === 0) {
+  // Sort icon helper
+  const getSortIcon = (columnId: string) => {
+    if (!columnConfig?.sort || columnConfig.sort.columnId !== columnId) {
+      return <ArrowUpDown className="w-3 h-3 text-gray-400" />;
+    }
+    if (columnConfig.sort.direction === 'asc') {
+      return <ArrowUp className="w-3 h-3 text-blue-600" />;
+    }
+    return <ArrowDown className="w-3 h-3 text-blue-600" />;
+  };
+
+  if (sortedAidatlar.length === 0) {
     return (
       <div className="text-center py-16 text-gray-500">
         <div className="flex flex-col items-center gap-2">
@@ -171,12 +190,24 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
           }}>
             {visibleColumns.map((colId) => {
               const col = columnRenderers[colId];
+              const isSortable = colId !== 'actions';
+
               return (
                 <div
                   key={colId}
                   className={`text-xs font-semibold text-gray-600 uppercase tracking-wide ${col.className || ''}`}
                 >
-                  {col.header}
+                  {isSortable && onSort ? (
+                    <button
+                      onClick={() => onSort(colId)}
+                      className="flex items-center gap-1 hover:text-gray-800 transition-colors"
+                    >
+                      <span>{col.header}</span>
+                      {getSortIcon(colId)}
+                    </button>
+                  ) : (
+                    <span>{col.header}</span>
+                  )}
                 </div>
               );
             })}
@@ -208,7 +239,7 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
           }}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
-            const aidat = aidatlar[virtualRow.index];
+            const aidat = sortedAidatlar[virtualRow.index];
 
             return (
               <div
@@ -243,8 +274,8 @@ export const AidatTakipVirtualTable: React.FC<AidatTakipVirtualTableProps> = ({
       {/* Footer - Toplam kayıt sayısı */}
       <div className="bg-gray-50 border-t border-gray-200 px-6 py-3">
         <div className="text-sm text-gray-600">
-          Toplam <span className="font-semibold">{aidatlar.length}</span> aidat kaydı gösteriliyor
-          {virtualizer.getVirtualItems().length < aidatlar.length && (
+          Toplam <span className="font-semibold">{sortedAidatlar.length}</span> aidat kaydı gösteriliyor
+          {virtualizer.getVirtualItems().length < sortedAidatlar.length && (
             <span className="ml-2 text-xs text-gray-500">
               (Ekranda: {virtualizer.getVirtualItems().length})
             </span>

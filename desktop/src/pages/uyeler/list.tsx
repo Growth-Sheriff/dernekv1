@@ -58,6 +58,7 @@ export const UyelerListPage: React.FC = () => {
     isLoading: columnConfigLoading,
     saveConfig: saveColumnConfig,
     resetConfig: resetColumnConfig,
+    toggleSort,
   } = useColumnConfig({
     pageKey: PAGE_KEYS.UYELER_LIST,
     defaultVisible: UYELER_PAGE_CONFIG.defaultVisible,
@@ -1122,6 +1123,7 @@ export const UyelerListPage: React.FC = () => {
             onDelete={(id, adSoyad) => handleDelete(id, adSoyad, { stopPropagation: () => {} } as any)}
             columnConfig={columnConfig}
             onColumnSettings={() => setShowColumnSettings(true)}
+            onSort={toggleSort}
           />
         )}
       </div>

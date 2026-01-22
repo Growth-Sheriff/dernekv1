@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '@/store/authStore';
-import type { ColumnConfig, PageKey } from '@/types/columnConfig';
+import type { ColumnConfig, PageKey, SortConfig, SortDirection } from '@/types/columnConfig';
+import { getNextSortDirection } from '@/utils/sorting';
 
 interface UseColumnConfigOptions {
   pageKey: PageKey;
@@ -16,6 +17,8 @@ interface UseColumnConfigReturn {
   resetConfig: () => Promise<void>;
   updateVisibleColumns: (visible: string[]) => Promise<void>;
   updateColumnOrder: (order: string[]) => Promise<void>;
+  updateSort: (columnId: string, direction: SortDirection) => Promise<void>;
+  toggleSort: (columnId: string) => Promise<void>;
 }
 
 /**
@@ -35,13 +38,18 @@ export const useColumnConfig = ({
 
   const [config, setConfig] = useState<ColumnConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  // Default değerleri ref ile sabitle (sonsuz döngü önleme)
+  const defaultVisibleRef = useRef(defaultVisible);
+  const defaultOrderRef = useRef(defaultOrder);
 
   // LocalStorage key
   const localStorageKey = `column_config_${pageKey}_${tenant?.id}_${user?.id}`;
 
   // Backend'den config'i yükle
   const loadConfig = useCallback(async () => {
-    if (!tenant || !user) {
+    if (!tenant || !user || hasLoaded) {
       setIsLoading(false);
       return;
     }
@@ -68,12 +76,13 @@ export const useColumnConfig = ({
         } else {
           // Hiçbiri yoksa default config kullan
           const defaultConfig: ColumnConfig = {
-            visible: defaultVisible,
-            order: defaultOrder,
+            visible: defaultVisibleRef.current,
+            order: defaultOrderRef.current,
           };
           setConfig(defaultConfig);
         }
       }
+      setHasLoaded(true);
     } catch (error) {
       console.error('Failed to load column config:', error);
 
@@ -85,20 +94,21 @@ export const useColumnConfig = ({
         } catch {
           // Parse hatası varsa default
           setConfig({
-            visible: defaultVisible,
-            order: defaultOrder,
+            visible: defaultVisibleRef.current,
+            order: defaultOrderRef.current,
           });
         }
       } else {
         setConfig({
-          visible: defaultVisible,
-          order: defaultOrder,
+          visible: defaultVisibleRef.current,
+          order: defaultOrderRef.current,
         });
       }
+      setHasLoaded(true);
     } finally {
       setIsLoading(false);
     }
-  }, [tenant, user, pageKey, defaultVisible, defaultOrder, localStorageKey]);
+  }, [tenant?.id, user?.id, pageKey, localStorageKey, hasLoaded]);
 
   // Component mount'ta yükle
   useEffect(() => {
@@ -180,6 +190,35 @@ export const useColumnConfig = ({
     await saveConfig(newConfig);
   }, [config, saveConfig]);
 
+  // Sıralama yapılandırmasını güncelle
+  const updateSort = useCallback(async (columnId: string, direction: SortDirection) => {
+    if (!config) return;
+
+    const sortConfig: SortConfig | undefined = direction
+      ? { columnId, direction }
+      : undefined;
+
+    const newConfig: ColumnConfig = {
+      ...config,
+      sort: sortConfig,
+    };
+
+    await saveConfig(newConfig);
+  }, [config, saveConfig]);
+
+  // Sıralamayı toggle et (null -> asc -> desc -> null)
+  const toggleSort = useCallback(async (columnId: string) => {
+    if (!config) return;
+
+    const currentDirection = config.sort?.columnId === columnId
+      ? config.sort.direction
+      : null;
+
+    const nextDirection = getNextSortDirection(currentDirection);
+
+    await updateSort(columnId, nextDirection);
+  }, [config, updateSort]);
+
   return {
     config,
     isLoading,
@@ -187,5 +226,7 @@ export const useColumnConfig = ({
     resetConfig,
     updateVisibleColumns,
     updateColumnOrder,
+    updateSort,
+    toggleSort,
   };
 };

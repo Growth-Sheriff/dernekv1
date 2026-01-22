@@ -1,8 +1,9 @@
 import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Pencil, Trash2, User, TrendingUp, Settings2 } from 'lucide-react';
+import { Pencil, Trash2, User, TrendingUp, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ColumnConfig } from '@/types/columnConfig';
+import { sortData } from '@/utils/sorting';
 
 interface Gelir {
   id: string;
@@ -22,6 +23,7 @@ interface GelirlerVirtualTableProps {
   onDelete: (gelirId: string) => void;
   columnConfig?: ColumnConfig | null;
   onColumnSettings?: () => void;
+  onSort?: (columnId: string) => void;
 }
 
 export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
@@ -30,11 +32,17 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
   onDelete,
   columnConfig,
   onColumnSettings,
+  onSort,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Apply sorting to data
+  const sortedGelirler = useMemo(() => {
+    return sortData(gelirler, columnConfig?.sort);
+  }, [gelirler, columnConfig?.sort]);
+
   const virtualizer = useVirtualizer({
-    count: gelirler.length,
+    count: sortedGelirler.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 65,
     overscan: 5,
@@ -143,7 +151,18 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
     );
   }, [columnConfig]);
 
-  if (gelirler.length === 0) {
+  // Sort icon helper
+  const getSortIcon = (columnId: string) => {
+    if (!columnConfig?.sort || columnConfig.sort.columnId !== columnId) {
+      return <ArrowUpDown className="w-3 h-3 text-gray-400" />;
+    }
+    if (columnConfig.sort.direction === 'asc') {
+      return <ArrowUp className="w-3 h-3 text-blue-600" />;
+    }
+    return <ArrowDown className="w-3 h-3 text-blue-600" />;
+  };
+
+  if (sortedGelirler.length === 0) {
     return (
       <div className="text-center py-16 text-gray-500">
         <div className="flex flex-col items-center gap-2">
@@ -165,12 +184,24 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
           }}>
             {visibleColumns.map((colId) => {
               const col = columnRenderers[colId];
+              const isSortable = colId !== 'actions';
+
               return (
                 <div
                   key={colId}
                   className={`text-xs font-semibold text-gray-600 uppercase tracking-wide ${col.className || ''}`}
                 >
-                  {col.header}
+                  {isSortable && onSort ? (
+                    <button
+                      onClick={() => onSort(colId)}
+                      className="flex items-center gap-1 hover:text-gray-800 transition-colors"
+                    >
+                      <span>{col.header}</span>
+                      {getSortIcon(colId)}
+                    </button>
+                  ) : (
+                    <span>{col.header}</span>
+                  )}
                 </div>
               );
             })}
@@ -202,7 +233,7 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
           }}
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
-            const gelir = gelirler[virtualRow.index];
+            const gelir = sortedGelirler[virtualRow.index];
 
             return (
               <div
@@ -237,8 +268,8 @@ export const GelirlerVirtualTable: React.FC<GelirlerVirtualTableProps> = ({
       {/* Footer - Toplam kayıt sayısı */}
       <div className="bg-gray-50 border-t border-gray-200 px-6 py-3">
         <div className="text-sm text-gray-600">
-          Toplam <span className="font-semibold">{gelirler.length}</span> gelir kaydı gösteriliyor
-          {virtualizer.getVirtualItems().length < gelirler.length && (
+          Toplam <span className="font-semibold">{sortedGelirler.length}</span> gelir kaydı gösteriliyor
+          {virtualizer.getVirtualItems().length < sortedGelirler.length && (
             <span className="ml-2 text-xs text-gray-500">
               (Ekranda: {virtualizer.getVirtualItems().length})
             </span>

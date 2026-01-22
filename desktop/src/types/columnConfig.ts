@@ -4,10 +4,20 @@
  * Her liste sayfası için sütun görünürlüğü, sıralaması ve genişliklerini yönetir
  */
 
+// Sıralama yönü
+export type SortDirection = 'asc' | 'desc' | null;
+
+// Sıralama yapılandırması
+export interface SortConfig {
+  columnId: string;
+  direction: SortDirection;
+}
+
 export interface ColumnConfig {
   visible: string[];      // Görünür sütunların ID'leri
   order: string[];        // Sütun sıralaması (tüm sütunlar)
   widths?: Record<string, number>; // Sütun genişlikleri (px)
+  sort?: SortConfig;      // Aktif sıralama
 }
 
 export interface ColumnDefinition {

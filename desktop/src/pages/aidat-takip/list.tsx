@@ -63,6 +63,7 @@ export const AidatTakipPage: React.FC = () => {
     config: columnConfig,
     saveConfig: saveColumnConfig,
     resetConfig: resetColumnConfig,
+    toggleSort,
   } = useColumnConfig({
     pageKey: PAGE_KEYS.AIDAT_TAKIP_LIST,
     defaultVisible: AIDAT_TAKIP_PAGE_CONFIG.defaultVisible,
@@ -555,6 +556,7 @@ export const AidatTakipPage: React.FC = () => {
           onOdemeEkle={handleShowOdemeler}
           columnConfig={columnConfig}
           onColumnSettings={() => setShowColumnSettings(true)}
+          onSort={toggleSort}
         />
       )}
 
