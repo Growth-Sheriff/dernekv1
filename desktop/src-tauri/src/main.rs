@@ -98,6 +98,9 @@ fn main() {
             commands::aidat::toplu_aidat_onizleme,  // YENİ - Önizleme ile UX iyileştirmesi
             commands::aidat::toplu_aidat_olustur,
             commands::aidat::toplu_aidat_kisi_bazli,  // YENİ - Kişi bazlı toplu aidat
+            commands::aidat::get_uye_aidat_borclari,  // YENİ - Üye borç detayı
+            commands::aidat::ozel_tutar_borclandir,  // YENİ - Seçili üyelere özel tutar
+            commands::aidat::coklu_donem_tahsilat,  // YENİ - Çoklu dönem tahsilatı
             commands::aidat::coklu_yil_odeme,
             commands::aidat::kaydet_aidat_odeme_with_gelir,
             commands::aidat::add_aidat_odeme_with_gelir,  // RECOMMENDED - Full integration (kasa + gelir + aidat)
