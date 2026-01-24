@@ -1,10 +1,12 @@
 import React, { useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Eye, Pencil, Trash2, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Eye, Pencil, Trash2, Settings2, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { ColumnConfig } from '@/types/columnConfig';
 import { sortData } from '@/utils/sorting';
+import { exportToExcel, exportToPDF, columnsToExportFormat } from '@/utils/export';
+import { UYELER_COLUMNS } from '@/config/columnDefinitions';
 
 interface Uye {
   id: string;
@@ -300,15 +302,52 @@ export const UyelerVirtualTable: React.FC<UyelerVirtualTableProps> = ({
         </div>
       </div>
 
-      {/* Footer - Toplam kayıt sayısı */}
+      {/* Footer - Toplam kayıt sayısı + Export */}
       <div className="bg-gray-50 border-t border-gray-200 px-6 py-3">
-        <div className="text-sm text-gray-600">
-          Toplam <span className="font-semibold">{sortedUyeler.length}</span> üye gösteriliyor
-          {virtualizer.getVirtualItems().length < sortedUyeler.length && (
-            <span className="ml-2 text-xs text-gray-500">
-              (Ekranda: {virtualizer.getVirtualItems().length})
-            </span>
-          )}
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Toplam <span className="font-semibold">{sortedUyeler.length}</span> üye gösteriliyor
+            {virtualizer.getVirtualItems().length < sortedUyeler.length && (
+              <span className="ml-2 text-xs text-gray-500">
+                (Ekranda: {virtualizer.getVirtualItems().length})
+              </span>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const exportColumns = columnsToExportFormat(UYELER_COLUMNS, columnConfig?.visible || UYELER_COLUMNS.map(c => c.id));
+                exportToExcel(sortedUyeler, exportColumns, {
+                  filename: `uyeler-${new Date().toISOString().split('T')[0]}`,
+                  sheetName: 'Üyeler',
+                });
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Excel</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const exportColumns = columnsToExportFormat(UYELER_COLUMNS, columnConfig?.visible || UYELER_COLUMNS.map(c => c.id));
+                exportToPDF(sortedUyeler, exportColumns, {
+                  filename: `uyeler-${new Date().toISOString().split('T')[0]}`,
+                  title: 'Üyeler Listesi',
+                  orientation: 'landscape',
+                });
+              }}
+              className="flex items-center gap-1.5"
+            >
+              <FileText className="w-4 h-4" />
+              <span>PDF</span>
+            </Button>
+          </div>
         </div>
       </div>
     </div>
