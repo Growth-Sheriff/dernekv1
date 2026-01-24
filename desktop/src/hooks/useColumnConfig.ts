@@ -19,6 +19,8 @@ interface UseColumnConfigReturn {
   updateColumnOrder: (order: string[]) => Promise<void>;
   updateSort: (columnId: string, direction: SortDirection) => Promise<void>;
   toggleSort: (columnId: string) => Promise<void>;
+  updateColumnWidth: (columnId: string, width: number) => Promise<void>;
+  updateColumnWidths: (widths: Record<string, number>) => Promise<void>;
 }
 
 /**
@@ -219,6 +221,33 @@ export const useColumnConfig = ({
     await updateSort(columnId, nextDirection);
   }, [config, updateSort]);
 
+  // Tek bir sütunun genişliğini güncelle
+  const updateColumnWidth = useCallback(async (columnId: string, width: number) => {
+    if (!config) return;
+
+    const newConfig: ColumnConfig = {
+      ...config,
+      widths: {
+        ...config.widths,
+        [columnId]: width,
+      },
+    };
+
+    await saveConfig(newConfig);
+  }, [config, saveConfig]);
+
+  // Tüm sütun genişliklerini güncelle
+  const updateColumnWidths = useCallback(async (widths: Record<string, number>) => {
+    if (!config) return;
+
+    const newConfig: ColumnConfig = {
+      ...config,
+      widths,
+    };
+
+    await saveConfig(newConfig);
+  }, [config, saveConfig]);
+
   return {
     config,
     isLoading,
@@ -228,5 +257,7 @@ export const useColumnConfig = ({
     updateColumnOrder,
     updateSort,
     toggleSort,
+    updateColumnWidth,
+    updateColumnWidths,
   };
 };
