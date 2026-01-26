@@ -1,3 +1,4 @@
+import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuthStore } from '@/store/authStore';
@@ -97,8 +98,10 @@ export const useUyeler = (options: UseUyelerOptions = {}): UseUyelerReturn => {
       if (!tenant || uyeler.length === 0) return [];
 
       try {
+        const uyeIds = uyeler.map(u => u.id);
         const result = await invoke<UyeBorcDurumu[]>('get_uye_borc_durumlari', {
           tenantIdParam: tenant.id,
+          uyeIds,
         });
         return result;
       } catch (error) {
@@ -111,7 +114,7 @@ export const useUyeler = (options: UseUyelerOptions = {}): UseUyelerReturn => {
   });
 
   // Borç durumlarını map'e çevir (hızlı erişim için)
-  const borcDurumlari = React.useMemo(() => {
+  const borcDurumlari = useMemo(() => {
     return borcDurumlariArray.reduce((acc, borc) => {
       acc[borc.uye_id] = borc;
       return acc;

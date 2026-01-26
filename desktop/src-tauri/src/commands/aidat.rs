@@ -1712,6 +1712,18 @@ pub fn calculate_uye_aidat_tutari(
 // YENİ TOPLU İŞLEMLER COMMANDS
 // ============================================================================
 
+#[derive(Debug, Serialize, QueryableByName)]
+pub struct AidatBorcDetay {
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub yil: i32,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub tutar: f64,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub odenen: f64,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    pub kalan: f64,
+}
+
 /// Üyenin aidat borçlarını detaylı getir (yıl bazında)
 #[tauri::command]
 pub async fn get_uye_aidat_borclari(
@@ -1724,18 +1736,6 @@ pub async fn get_uye_aidat_borclari(
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
-
-    #[derive(Debug, Serialize, QueryableByName)]
-    pub struct AidatBorcDetay {
-        #[diesel(sql_type = diesel::sql_types::Integer)]
-        pub yil: i32,
-        #[diesel(sql_type = diesel::sql_types::Double)]
-        pub tutar: f64,
-        #[diesel(sql_type = diesel::sql_types::Double)]
-        pub odenen: f64,
-        #[diesel(sql_type = diesel::sql_types::Double)]
-        pub kalan: f64,
-    }
 
     let result = diesel::sql_query(
         "SELECT yil,
@@ -1845,6 +1845,18 @@ pub async fn coklu_donem_tahsilat(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
+    #[derive(QueryableByName)]
+    struct AidatRow {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        id: String,
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        tutar: f64,
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        odenen: f64,
+        #[diesel(sql_type = diesel::sql_types::Double)]
+        kalan: f64,
+    }
+
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
         let mut kalan_odeme = odeme_tutari;
         let mut odenen_yillar = Vec::new();
@@ -1863,10 +1875,13 @@ pub async fn coklu_donem_tahsilat(
             .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
             .bind::<diesel::sql_types::Text, _>(&uye_id)
             .bind::<diesel::sql_types::Integer, _>(yil)
-            .get_result::<(String, f64, f64, f64)>(conn)
+            .get_result::<AidatRow>(conn)
             .optional()?;
 
-            if let Some((aidat_id, _tutar, odenen, kalan)) = aidat_opt {
+            if let Some(aidat_row) = aidat_opt {
+                let aidat_id = aidat_row.id;
+                let odenen = aidat_row.odenen;
+                let kalan = aidat_row.kalan;
                 let odeme_miktari = kalan.min(kalan_odeme);
                 let yeni_odenen = odenen + odeme_miktari;
                 let yeni_kalan = kalan - odeme_miktari;

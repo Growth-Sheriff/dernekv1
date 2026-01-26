@@ -1,7 +1,8 @@
-use crate::db::Pool;
+use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,14 +12,21 @@ pub struct ColumnConfig {
     pub widths: Option<serde_json::Value>, // Sütun genişlikleri (opsiyonel)
 }
 
-#[derive(Debug, Serialize, Deserialize, Queryable)]
+#[derive(Debug, Serialize, Deserialize, Queryable, QueryableByName)]
 pub struct KullaniciGorunum {
+    #[diesel(sql_type = Text)]
     pub id: String,
+    #[diesel(sql_type = Text)]
     pub tenant_id: String,
+    #[diesel(sql_type = Text)]
     pub user_id: String,
+    #[diesel(sql_type = Text)]
     pub page_key: String,
+    #[diesel(sql_type = Text)]
     pub columns_config: String,
+    #[diesel(sql_type = Text)]
     pub created_at: String,
+    #[diesel(sql_type = Text)]
     pub updated_at: String,
 }
 
@@ -31,11 +39,13 @@ pub struct SaveColumnConfigRequest {
 /// Kullanıcının sütun tercihlerini kaydet
 #[tauri::command]
 pub async fn save_column_preferences(
-    pool: State<'_, Pool>,
+    state: State<'_, AppState>,
     tenantIdParam: String,
     userId: String,
     request: SaveColumnConfigRequest,
 ) -> Result<String, String> {
+    let db = state.db.lock().unwrap();
+    let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     let config_json = serde_json::to_string(&request.columns_config)
@@ -68,11 +78,13 @@ pub async fn save_column_preferences(
 /// Kullanıcının sütun tercihlerini getir
 #[tauri::command]
 pub async fn get_column_preferences(
-    pool: State<'_, Pool>,
+    state: State<'_, AppState>,
     tenantIdParam: String,
     userId: String,
     pageKey: String,
 ) -> Result<Option<ColumnConfig>, String> {
+    let db = state.db.lock().unwrap();
+    let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     let query = format!(
@@ -102,11 +114,13 @@ pub async fn get_column_preferences(
 /// Kullanıcının tüm sütun tercihlerini sıfırla (belirli bir sayfa için)
 #[tauri::command]
 pub async fn reset_column_preferences(
-    pool: State<'_, Pool>,
+    state: State<'_, AppState>,
     tenantIdParam: String,
     userId: String,
     pageKey: String,
 ) -> Result<String, String> {
+    let db = state.db.lock().unwrap();
+    let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     let query = format!(
@@ -127,10 +141,12 @@ pub async fn reset_column_preferences(
 /// Kullanıcının tüm sayfalardaki sütun tercihlerini getir
 #[tauri::command]
 pub async fn get_all_column_preferences(
-    pool: State<'_, Pool>,
+    state: State<'_, AppState>,
     tenantIdParam: String,
     userId: String,
 ) -> Result<Vec<(String, ColumnConfig)>, String> {
+    let db = state.db.lock().unwrap();
+    let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     let query = format!(
