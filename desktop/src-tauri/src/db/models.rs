@@ -202,6 +202,7 @@ pub struct Gelir {
     pub tahakkuk_durumu: Option<String>,
     pub notlar: Option<String>,
     pub belge_id: Option<String>,
+    pub is_deleted: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -237,6 +238,7 @@ pub struct Gider {
     pub odeyen: Option<String>,
     pub notlar: Option<String>,
     pub belge_id: Option<String>,
+    pub is_deleted: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -279,6 +281,7 @@ pub struct Virman {
     pub hedef_tutar: Option<f64>,
     pub uygulanan_kur: Option<f64>,
     pub kur_id: Option<String>,
+    pub is_deleted: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }

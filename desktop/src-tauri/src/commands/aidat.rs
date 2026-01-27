@@ -288,24 +288,72 @@ pub async fn kaydet_odeme(
         .map_err(|e| e.to_string())?;
 
     let yeni_odenen = current.odenen + odeme.tutar;
+    let yeni_kalan = current.tutar - yeni_odenen;
     let yeni_durum = if yeni_odenen >= current.tutar {
         "odendi"
     } else {
         "kismi_odendi"
     };
 
-    diesel::sql_query(
-        "UPDATE aidat_takip SET odenen = ?1, odeme_tarihi = ?2, durum = ?3, updated_at = ?4 WHERE id = ?5 AND tenant_id = ?6"
-    )
-    .bind::<diesel::sql_types::Double, _>(yeni_odenen)
-    .bind::<diesel::sql_types::Text, _>(&odeme.odeme_tarihi)
-    .bind::<diesel::sql_types::Text, _>(yeni_durum)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&aidat_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .execute(&mut conn)
-    .map_err(|e| e.to_string())?;
+    // Transaction ile aidat + gelir + kasa güncellemelerini yap
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // 1. Aidat kaydını güncelle
+        diesel::sql_query(
+            "UPDATE aidat_takip SET odenen = ?1, kalan = ?2, odeme_tarihi = ?3, durum = ?4, updated_at = ?5 WHERE id = ?6 AND tenant_id = ?7"
+        )
+        .bind::<diesel::sql_types::Double, _>(yeni_odenen)
+        .bind::<diesel::sql_types::Double, _>(yeni_kalan)
+        .bind::<diesel::sql_types::Text, _>(&odeme.odeme_tarihi)
+        .bind::<diesel::sql_types::Text, _>(yeni_durum)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&aidat_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .execute(conn)?;
 
+        // 2. Kasa ID kontrolü - varsa gelir ve kasa güncelle
+        if let Some(ref kasa_id_val) = odeme.kasa_id {
+            let new_gelir_id = Uuid::new_v4().to_string();
+            let makbuz_no = format!("AIDAT-{}", &new_gelir_id[..8]);
+            
+            // Gelir kaydı oluştur
+            diesel::sql_query(
+                "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, aidat_id, uye_id, makbuz_no, ait_oldugu_yil, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'AİDAT', ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)"
+            )
+            .bind::<diesel::sql_types::Text, _>(&new_gelir_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(kasa_id_val)
+            .bind::<diesel::sql_types::Double, _>(odeme.tutar)
+            .bind::<diesel::sql_types::Text, _>(&odeme.odeme_tarihi)
+            .bind::<diesel::sql_types::Text, _>(format!("{} yılı aidat ödemesi", current.yil))
+            .bind::<diesel::sql_types::Text, _>(&aidat_id)
+            .bind::<diesel::sql_types::Text, _>(&current.uye_id)
+            .bind::<diesel::sql_types::Text, _>(&makbuz_no)
+            .bind::<diesel::sql_types::Integer, _>(current.yil)
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .execute(conn)?;
+
+            // Kasa bakiyesini güncelle
+            diesel::sql_query(
+                "UPDATE kasalar 
+                 SET toplam_gelir = COALESCE(toplam_gelir, 0.0) + ?1,
+                     fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) + ?2,
+                     bakiye = bakiye + ?3,
+                     updated_at = ?4
+                 WHERE id = ?5"
+            )
+            .bind::<diesel::sql_types::Double, _>(odeme.tutar)
+            .bind::<diesel::sql_types::Double, _>(odeme.tutar)
+            .bind::<diesel::sql_types::Double, _>(odeme.tutar)
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .bind::<diesel::sql_types::Text, _>(kasa_id_val)
+            .execute(conn)?;
+        }
+
+        Ok(())
+    }).map_err(|e: diesel::result::Error| e.to_string())?;
+
+    // Sync kaydı oluştur
     let sync_id = Uuid::new_v4().to_string();
     diesel::sql_query(
         "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
@@ -1937,5 +1985,137 @@ pub async fn coklu_donem_tahsilat(
         "success": true,
         "odenen_tutar": odeme_tutari,
         "mesaj": "Çoklu dönem tahsilatı başarıyla kaydedildi"
+    }))
+}
+
+// ============================================================================
+// AİDAT BORÇLANDIRMA SİLME (İPTAL) FONKSİYONLARI
+// ============================================================================
+
+/// Tek bir aidat borçlandırmasını iptal eder (soft delete)
+/// Eğer aidata bağlı ödeme/gelir varsa, onları da iptal eder
+#[tauri::command]
+pub async fn delete_aidat_borclandirma(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    aidat_id: String,
+) -> Result<serde_json::Value, String> {
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+    
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Önce aidat kaydını al
+    use crate::db::schema::aidat_takip::dsl::*;
+    let aidat = aidat_takip
+        .filter(id.eq(&aidat_id))
+        .filter(tenant_id.eq(&tenant_id_param))
+        .first::<AidatTakip>(&mut conn)
+        .map_err(|e| format!("Aidat bulunamadı: {}", e))?;
+
+    // Eğer ödeme yapılmışsa iptal edemeyiz
+    if aidat.odenen > 0.01 {
+        return Err("Bu aidata ödeme yapılmış. Önce ödemeleri iptal etmelisiniz.".to_string());
+    }
+
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // SOFT DELETE: Aidat kaydını iptal et
+        diesel::sql_query(
+            "UPDATE aidat_takip SET durum = 'iptal', notlar = COALESCE(notlar, '') || ' [İPTAL: ' || ?1 || ']', updated_at = ?2 WHERE id = ?3"
+        )
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&aidat_id)
+        .execute(conn)?;
+
+        Ok(())
+    }).map_err(|e: diesel::result::Error| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "mesaj": format!("{} yılı aidat borçlandırması iptal edildi", aidat.yil)
+    }))
+}
+
+/// Toplu borçlandırmayı geri alır (belirli yıl + tarih aralığındaki tüm borçlandırmaları iptal eder)
+#[derive(Debug, Deserialize)]
+pub struct TopluIptalRequest {
+    pub yil: i32,
+    pub baslangic_tarihi: Option<String>, // Oluşturma tarihi filtresi
+    pub bitis_tarihi: Option<String>,
+}
+
+#[tauri::command]
+pub async fn toplu_aidat_iptal(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    data: TopluIptalRequest,
+) -> Result<serde_json::Value, String> {
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+    
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Ödeme yapılmamış ve iptal edilmemiş aidatları say
+    #[derive(QueryableByName)]
+    struct CountRow {
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        count: i32,
+    }
+
+    let mut count_query = format!(
+        "SELECT COUNT(*) as count FROM aidat_takip WHERE tenant_id = '{}' AND yil = {} AND odenen <= 0.01 AND durum != 'iptal'",
+        tenant_id_param.replace("'", "''"), data.yil
+    );
+    
+    if let Some(ref baslangic) = data.baslangic_tarihi {
+        count_query.push_str(&format!(" AND created_at >= '{}'", baslangic.replace("'", "''")));
+    }
+    if let Some(ref bitis) = data.bitis_tarihi {
+        count_query.push_str(&format!(" AND created_at <= '{}'", bitis.replace("'", "''")));
+    }
+
+    let iptal_edilecek: i32 = diesel::sql_query(&count_query)
+        .get_result::<CountRow>(&mut conn)
+        .map(|r| r.count)
+        .unwrap_or(0);
+
+    if iptal_edilecek == 0 {
+        return Ok(serde_json::json!({
+            "success": false,
+            "iptal_edilen": 0,
+            "mesaj": "İptal edilecek borçlandırma bulunamadı. (Ödeme yapılmış veya zaten iptal edilmiş olabilir)"
+        }));
+    }
+
+    // Toplu iptal
+    let mut update_query = format!(
+        "UPDATE aidat_takip SET durum = 'iptal', notlar = COALESCE(notlar, '') || ' [TOPLU İPTAL: {}]', updated_at = '{}' WHERE tenant_id = '{}' AND yil = {} AND odenen <= 0.01 AND durum != 'iptal'",
+        now, now, tenant_id_param.replace("'", "''"), data.yil
+    );
+    
+    if let Some(ref baslangic) = data.baslangic_tarihi {
+        update_query.push_str(&format!(" AND created_at >= '{}'", baslangic.replace("'", "''")));
+    }
+    if let Some(ref bitis) = data.bitis_tarihi {
+        update_query.push_str(&format!(" AND created_at <= '{}'", bitis.replace("'", "''")));
+    }
+
+    diesel::sql_query(&update_query)
+        .execute(&mut conn)
+        .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "iptal_edilen": iptal_edilecek,
+        "mesaj": format!("{} adet aidat borçlandırması iptal edildi", iptal_edilecek)
     }))
 }

@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{State, Manager, AppHandle};
 use diesel::prelude::*;
 use chrono::Utc;
 use uuid::Uuid;
@@ -114,6 +114,7 @@ pub fn get_belgeler(
 
 #[tauri::command]
 pub fn create_belge(
+    app_handle: AppHandle,
     state: State<AppState>,
     tenantIdParam: String,
     request: CreateBelgeRequest,
@@ -121,6 +122,33 @@ pub fn create_belge(
     let db = state.db.lock().unwrap();
     let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // 1. Hedef klasörü hazırla (AppLocalData/uploads)
+    let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let uploads_dir = app_dir.join("uploads");
+    
+    if !uploads_dir.exists() {
+        fs::create_dir_all(&uploads_dir).map_err(|e| format!("Upload klasörü oluşturulamadı: {}", e))?;
+    }
+
+    // 2. Dosya kopyalama işlemi
+    let source_path = Path::new(&request.dosya_yolu);
+    if !source_path.exists() {
+        // Eğer dosya yoksa, sadece metadata kaydı yapmaya çalışıyoruz demektir veya path hatalı.
+        // Kullanıcıya hata dönelim.
+        return Err(format!("Seçilen dosya bulunamadı veya erişilemiyor: {}", request.dosya_yolu));
+    }
+
+    // Benzersiz dosya adı oluştur
+    let ext = source_path.extension().and_then(|s| s.to_str()).unwrap_or("dat");
+    let new_file_name = format!("{}_{}", Uuid::new_v4(), request.dosya_adi.replace(" ", "_")); // Boşlukları temizle
+    let target_path = uploads_dir.join(&new_file_name);
+
+    // Kopyala
+    fs::copy(source_path, &target_path).map_err(|e| format!("Dosya yüklenirken hata oluştu (İzin hatası olabilir): {}", e))?;
+
+    let stored_file_path = target_path.to_string_lossy().to_string();
+    let stored_file_size = fs::metadata(&target_path).map(|m| m.len() as i32).unwrap_or(0);
 
     let belgeId = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -135,8 +163,8 @@ pub fn create_belge(
     .bind::<diesel::sql_types::Text, _>(&request.belge_turu)
     .bind::<diesel::sql_types::Text, _>(&request.baslik)
     .bind::<diesel::sql_types::Text, _>(&request.dosya_adi)
-    .bind::<diesel::sql_types::Text, _>(&request.dosya_yolu)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Integer>, _>(&request.dosya_boyutu)
+    .bind::<diesel::sql_types::Text, _>(&stored_file_path) // Yeni path
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Integer>, _>(Some(stored_file_size)) // Gerçek boyut
     .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&request.mime_type)
     .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&request.bagli_kayit_turu)
     .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&request.bagli_kayit_id)

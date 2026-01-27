@@ -37,4 +37,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <Toaster position="top-right" richColors />
     </QueryClientProvider>
   </React.StrictMode>,
-)
+);
+
+// Splash screen'i kapat - React yüklendikten sonra
+setTimeout(() => {
+  if (typeof (window as any).hideSplashScreen === 'function') {
+    (window as any).hideSplashScreen();
+  }
+}, 100);

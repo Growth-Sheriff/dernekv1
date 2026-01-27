@@ -111,6 +111,8 @@ fn main() {
             commands::aidat::update_aidat_tanimlama,
             commands::aidat::delete_aidat_tanimlama,
             commands::aidat::get_uye_borc_durumlari,  // Üye borç durumları
+            commands::aidat::delete_aidat_borclandirma,  // YENİ - Tek aidat borçlandırma iptal
+            commands::aidat::toplu_aidat_iptal,  // YENİ - Toplu borçlandırma geri alma
             // Mali - Kasalar
             commands::mali::get_kasalar,
             commands::mali::create_kasa,

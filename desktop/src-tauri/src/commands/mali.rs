@@ -247,8 +247,10 @@ pub async fn get_gelirler(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
+    // Diesel query - soft delete filtreli (is_deleted = null veya 0)
     let mut query = gelirler
         .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
         .into_boxed();
 
     if let Some(kid) = kasa_id_filter {
@@ -374,8 +376,10 @@ pub async fn get_giderler(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
+    // Diesel query - soft delete filtreli (is_deleted = null veya 0)
     let mut query = giderler
         .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
         .into_boxed();
 
     if let Some(kid) = kasa_id_filter {
@@ -867,8 +871,10 @@ pub async fn get_virmanlar(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
+    // Diesel query - soft delete filtreli (is_deleted = null veya 0)
     let mut query = virmanlar
         .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
         .into_boxed();
 
     if let Some(baslangic) = baslangic_tarih {
@@ -1355,12 +1361,10 @@ pub async fn delete_kasa(
 pub async fn delete_gelir(
     state: State<'_, crate::AppState>,
     tenant_id_param: String,
-    id: String,
+    record_id: String,  // id -> record_id olarak değiştirildi (schema çakışması)
 ) -> Result<(), String> {
     // TENANT ISOLATION: Verify access
     state.verify_tenant_access(&tenant_id_param)?;
-    
-    use crate::db::schema::gelirler::dsl::*;
 
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
@@ -1371,15 +1375,19 @@ pub async fn delete_gelir(
     // Önce kaydı al
     use crate::db::schema::gelirler::dsl as gelir_dsl;
     let gelir = gelir_dsl::gelirler
-        .filter(gelir_dsl::id.eq(&id))
+        .filter(gelir_dsl::id.eq(&record_id))
         .filter(gelir_dsl::tenant_id.eq(&tenant_id_param))
         .first::<Gelir>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Gelir kaydını sil
-        diesel::delete(gelirler.find(&id))
-            .execute(conn)?;
+        // SOFT DELETE: Gelir kaydını silindi olarak işaretle
+        diesel::sql_query(
+            "UPDATE gelirler SET is_deleted = 1, updated_at = ?1 WHERE id = ?2"
+        )
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&record_id)
+        .execute(conn)?;
 
         // Kasa bakiyesini güncelle (geliri düş)
         use crate::db::schema::kasalar;
@@ -1398,6 +1406,50 @@ pub async fn delete_gelir(
         .bind::<diesel::sql_types::Text, _>(&gelir.kasa_id)
         .execute(conn)?;
 
+        // Aidat ile ilişkili ise aidat tablosunu da güncelle
+        if let Some(ref aid_id) = gelir.aidat_id {
+            use crate::db::schema::aidat_takip;
+            
+            // Aidat kaydını al
+            #[derive(QueryableByName)]
+            struct AidatRow {
+                #[diesel(sql_type = diesel::sql_types::Double)]
+                aidat_tutar: f64,
+                #[diesel(sql_type = diesel::sql_types::Double)]
+                aidat_odenen: f64,
+            }
+            
+            let aidat_opt = diesel::sql_query(
+                "SELECT tutar as aidat_tutar, odenen as aidat_odenen FROM aidat_takip WHERE id = ?1 AND tenant_id = ?2"
+            )
+            .bind::<diesel::sql_types::Text, _>(aid_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .get_result::<AidatRow>(conn)
+            .ok();
+            
+            if let Some(aidat) = aidat_opt {
+                let yeni_odenen = (aidat.aidat_odenen - gelir.tutar).max(0.0);
+                let yeni_kalan = aidat.aidat_tutar - yeni_odenen;
+                let yeni_durum = if yeni_odenen <= 0.01 { 
+                    "beklemede" 
+                } else if yeni_odenen >= aidat.aidat_tutar { 
+                    "odendi" 
+                } else { 
+                    "kismi_odendi" 
+                };
+
+                diesel::sql_query(
+                    "UPDATE aidat_takip SET odenen = ?1, kalan = ?2, durum = ?3, updated_at = ?4 WHERE id = ?5"
+                )
+                .bind::<diesel::sql_types::Double, _>(yeni_odenen)
+                .bind::<diesel::sql_types::Double, _>(yeni_kalan)
+                .bind::<diesel::sql_types::Text, _>(yeni_durum)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(aid_id)
+                .execute(conn)?;
+            }
+        }
+
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
 
@@ -1408,12 +1460,10 @@ pub async fn delete_gelir(
 pub async fn delete_gider(
     state: State<'_, crate::AppState>,
     tenant_id_param: String,
-    id: String,
+    record_id: String,  // id -> record_id olarak değiştirildi (schema çakışması)
 ) -> Result<(), String> {
     // TENANT ISOLATION: Verify access
     state.verify_tenant_access(&tenant_id_param)?;
-    
-    use crate::db::schema::giderler::dsl::*;
 
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
@@ -1424,15 +1474,19 @@ pub async fn delete_gider(
     // Önce kaydı al
     use crate::db::schema::giderler::dsl as gider_dsl;
     let gider = gider_dsl::giderler
-        .filter(gider_dsl::id.eq(&id))
+        .filter(gider_dsl::id.eq(&record_id))
         .filter(gider_dsl::tenant_id.eq(&tenant_id_param))
         .first::<Gider>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Gider kaydını sil
-        diesel::delete(giderler.find(&id))
-            .execute(conn)?;
+        // SOFT DELETE: Gider kaydını silindi olarak işaretle
+        diesel::sql_query(
+            "UPDATE giderler SET is_deleted = 1, updated_at = ?1 WHERE id = ?2"
+        )
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&record_id)
+        .execute(conn)?;
 
         // Kasa bakiyesini güncelle (gideri geri ekle)
         use crate::db::schema::kasalar;
@@ -1461,12 +1515,10 @@ pub async fn delete_gider(
 pub async fn delete_virman(
     state: State<'_, crate::AppState>,
     tenant_id_param: String,
-    id: String,
+    record_id: String,  // id -> record_id olarak değiştirildi (schema çakışması)
 ) -> Result<(), String> {
     // TENANT ISOLATION: Verify access
     state.verify_tenant_access(&tenant_id_param)?;
-    
-    use crate::db::schema::virmanlar::dsl::*;
 
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
@@ -1477,15 +1529,19 @@ pub async fn delete_virman(
     // Önce kaydı al
     use crate::db::schema::virmanlar::dsl as virman_dsl;
     let virman = virman_dsl::virmanlar
-        .filter(virman_dsl::id.eq(&id))
+        .filter(virman_dsl::id.eq(&record_id))
         .filter(virman_dsl::tenant_id.eq(&tenant_id_param))
         .first::<Virman>(&mut conn)
         .map_err(|e| e.to_string())?;
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Virman kaydını sil
-        diesel::delete(virmanlar.find(&id))
-            .execute(conn)?;
+        // SOFT DELETE: Virman kaydını silindi olarak işaretle
+        diesel::sql_query(
+            "UPDATE virmanlar SET is_deleted = 1, updated_at = ?1 WHERE id = ?2"
+        )
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&record_id)
+        .execute(conn)?;
 
         // Kaynak kasaya parayı geri ekle (virman_cikis azalt, bakiye artar)
         use crate::db::schema::kasalar;
