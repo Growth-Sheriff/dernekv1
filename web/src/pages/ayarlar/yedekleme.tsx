@@ -1,9 +1,10 @@
 import React from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { save, open } from '@tauri-apps/plugin-dialog';
 import { Download, Upload, Database, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 
+// Mock veya API'den gelen veriler
 interface BackupInfo {
   total_tables: number;
   total_records: number;
@@ -12,57 +13,54 @@ interface BackupInfo {
 }
 
 export const AyarlarYedeklemePage: React.FC = () => {
-  const tenant = useAuthStore((state) => state.tenant);
+  const { tenant, token } = useAuthStore();
   const [backupInfo, setBackupInfo] = React.useState<BackupInfo | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [message, setMessage] = React.useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [message, setMessage] = React.useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   React.useEffect(() => {
-    loadBackupInfo();
-  }, []);
-
-  const loadBackupInfo = async () => {
-    // Simulated backup info
+    // API'den istatistik çekme simülasyonu
     setBackupInfo({
-      total_tables: 12,
-      total_records: 15423,
-      size_mb: 45.3,
+      total_tables: 8,
+      total_records: 120, // Örnek
+      size_mb: 0.5,
       last_backup: localStorage.getItem('last_backup_date'),
     });
-  };
+  }, []);
 
   const handleBackup = async () => {
     try {
       setLoading(true);
       setMessage(null);
 
-      // Select save location
-      const filePath = await save({
-        title: 'Yedek Dosyasını Kaydet',
-        defaultPath: `bader_backup_${new Date().toISOString().split('T')[0]}.db`,
-        filters: [{
-          name: 'Database',
-          extensions: ['db']
-        }]
+      // Backend Export URL
+      // Doğrudan indirme başlatır. Token'ı query param veya header ile (fetch ile blob) göndermek lazım.
+      // fetch ile yapıp blob olarak indirelim.
+
+      const response = await fetch('http://localhost:8000/api/v1/backup/export', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
 
-      if (!filePath) {
-        setLoading(false);
-        return;
-      }
+      if (!response.ok) throw new Error('Yedek alma başarısız oldu');
 
-      // Create backup (simulated - in real app would use Tauri command)
-      await invoke('create_backup', { 
-        tenantIdParam: tenant?.id,
-        backupDir: filePath,
-      });
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bader_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
 
       localStorage.setItem('last_backup_date', new Date().toISOString());
-      await loadBackupInfo();
 
       setMessage({
         type: 'success',
-        text: 'Yedekleme başarıyla tamamlandı'
+        text: 'Yedekleme dosyası indirildi (JSON Formatında).'
       });
     } catch (error) {
       setMessage({
@@ -74,66 +72,16 @@ export const AyarlarYedeklemePage: React.FC = () => {
     }
   };
 
-  const handleRestore = async () => {
-    if (!window.confirm('⚠️ Dikkat! Mevcut veriler silinecek ve yedekten geri yüklenecek. Devam etmek istiyor musunuz?')) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setMessage(null);
-
-      // Select backup file
-      const selected = await open({
-        title: 'Yedek Dosyasını Seç',
-        multiple: false,
-        filters: [{
-          name: 'Database',
-          extensions: ['db']
-        }]
-      });
-
-      if (!selected || typeof selected !== 'string') {
-        setLoading(false);
-        return;
-      }
-
-      // Restore backup (simulated - in real app would use Tauri command)
-      await invoke('restore_backup', { 
-        tenantIdParam: tenant?.id,
-        source: selected,
-      });
-
-      setMessage({
-        type: 'success',
-        text: 'Geri yükleme başarıyla tamamlandı. Lütfen uygulamayı yeniden başlatın.'
-      });
-
-      // Reload after 2 seconds
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-    } catch (error) {
-      setMessage({
-        type: 'error',
-        text: `Geri yükleme hatası: ${error}`
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Yedekleme ve Geri Yükleme</h1>
-        <p className="text-gray-600 mt-1">Veritabanı yedekleme işlemleri</p>
+        <h1 className="text-2xl font-bold tracking-tight">Yedekleme ve Geri Yükleme</h1>
+        <p className="text-muted-foreground mt-1">Verilerinizi güvene alın veya geri yükleyin.</p>
       </div>
 
       {message && (
-        <div className={`p-4 rounded-lg flex items-start space-x-3 ${
-          message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-        }`}>
+        <div className={`p-4 rounded-lg flex items-start space-x-3 ${message.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
+          }`}>
           {message.type === 'success' ? (
             <CheckCircle2 className="h-5 w-5 mt-0.5" />
           ) : (
@@ -143,119 +91,97 @@ export const AyarlarYedeklemePage: React.FC = () => {
         </div>
       )}
 
+      {/* Backup Stats */}
       {backupInfo && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center mb-4">
-            <Database className="h-6 w-6 text-gray-600 mr-2" />
-            <h2 className="text-lg font-semibold text-gray-900">Veritabanı Bilgileri</h2>
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5" />
+              Veritabanı Durumu
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="text-sm text-muted-foreground">Toplam Tablo</div>
+                <div className="text-2xl font-bold mt-1">
+                  {backupInfo.total_tables}
+                </div>
+              </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Toplam Tablo</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1">
-                {backupInfo.total_tables}
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="text-sm text-muted-foreground">Toplam Kayıt</div>
+                <div className="text-2xl font-bold mt-1">
+                  {backupInfo.total_records.toLocaleString('tr-TR')}
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="text-sm text-muted-foreground">Veritabanı Boyutu</div>
+                <div className="text-2xl font-bold mt-1">
+                  ~{backupInfo.size_mb.toFixed(1)} MB
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="text-sm text-muted-foreground">Son Yedekleme</div>
+                <div className="text-lg font-semibold mt-1">
+                  {backupInfo.last_backup
+                    ? new Date(backupInfo.last_backup).toLocaleDateString('tr-TR')
+                    : 'Henüz yok'}
+                </div>
               </div>
             </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Toplam Kayıt</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1">
-                {backupInfo.total_records.toLocaleString('tr-TR')}
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Veritabanı Boyutu</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1">
-                {backupInfo.size_mb.toFixed(1)} MB
-              </div>
-            </div>
-
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Son Yedekleme</div>
-              <div className="text-lg font-semibold text-gray-900 mt-1">
-                {backupInfo.last_backup 
-                  ? new Date(backupInfo.last_backup).toLocaleDateString('tr-TR')
-                  : 'Henüz yok'}
-              </div>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center mb-4">
-            <Download className="h-6 w-6 text-blue-600 mr-2" />
-            <h2 className="text-lg font-semibold text-gray-900">Yedek Al</h2>
-          </div>
-
-          <p className="text-gray-600 mb-6">
-            Tüm veritabanını yedekleyin. Yedek dosyasını güvenli bir konumda saklayın.
-          </p>
-
-          <button
-            onClick={handleBackup}
-            disabled={loading}
-            className="w-full flex items-center justify-center px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
-                Yedekleniyor...
-              </>
-            ) : (
-              <>
-                <Download className="h-5 w-5 mr-2" />
-                Yedek Al
-              </>
-            )}
-          </button>
-
-          <div className="mt-4 p-3 bg-blue-50 rounded text-sm text-blue-800">
-            <strong>Not:</strong> Yedekleme sırasında uygulama kullanılabilir durumda kalır.
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center mb-4">
-            <Upload className="h-6 w-6 text-orange-600 mr-2" />
-            <h2 className="text-lg font-semibold text-gray-900">Geri Yükle</h2>
-          </div>
-
-          <p className="text-gray-600 mb-6">
-            Daha önce alınmış bir yedek dosyasından veritabanını geri yükleyin.
-          </p>
-
-          <button
-            onClick={handleRestore}
-            disabled={loading}
-            className="w-full flex items-center justify-center px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
-                Geri Yükleniyor...
-              </>
-            ) : (
-              <>
-                <Upload className="h-5 w-5 mr-2" />
-                Geri Yükle
-              </>
-            )}
-          </button>
-
-          <div className="mt-4 p-3 bg-red-50 rounded text-sm text-red-800">
-            <div className="flex items-start">
-              <AlertTriangle className="h-5 w-5 mr-2 flex-shrink-0" />
-              <div>
-                <strong>⚠️ Dikkat!</strong> Geri yükleme işlemi mevcut tüm verileri silecektir. 
-                İşlem geri alınamaz.
-              </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Export / Backup */}
+        <Card className="border-blue-100 shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-700">
+              <Download className="h-5 w-5" />
+              Yedek Al (Export)
+            </CardTitle>
+            <CardDescription>
+              Tüm verilerinizi JSON formatında dışa aktarın ve bilgisayarınıza indirin.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={handleBackup}
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {loading ? "İndiriliyor..." : "Yedeği İndir"}
+            </Button>
+            <div className="mt-4 text-xs text-blue-800 bg-blue-50 p-3 rounded">
+              <strong>Bilgi:</strong> İndirilen dosya <code>.json</code> formatındadır ve başka bir sisteme aktarılabilir.
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
+
+        {/* Restore (Disabled for Web) */}
+        <Card className="opacity-75 border-dashed">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-gray-500">
+              <Upload className="h-5 w-5" />
+              Geri Yükle (Import)
+            </CardTitle>
+            <CardDescription>
+              Yedekten geri yükleme işlemi.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button disabled variant="outline" className="w-full cursor-not-allowed">
+              Sadece Desktop Uygulamasında
+            </Button>
+            <div className="mt-4 text-xs text-yellow-800 bg-yellow-50 p-3 rounded">
+              <strong>Uyarı:</strong> Güvenlik nedeniyle Web arayüzünden veritabanı geri yükleme işlemi yapılamaz. Lütfen Desktop uygulamasını kullanın.
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -263,8 +189,6 @@ export const AyarlarYedeklemePage: React.FC = () => {
         <ul className="space-y-1 text-sm text-yellow-800">
           <li>• Düzenli olarak (haftalık/aylık) yedek alın</li>
           <li>• Yedek dosyalarını farklı konumlarda saklayın (harici disk, cloud)</li>
-          <li>• Önemli işlemlerden önce mutlaka yedek alın</li>
-          <li>• Geri yükleme yapmadan önce mevcut veritabanını yedekleyin</li>
           <li>• Yedek dosyalarının bütünlüğünü düzenli olarak test edin</li>
         </ul>
       </div>

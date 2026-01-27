@@ -68,6 +68,9 @@ app.add_middleware(
 def read_root():
     return {"message": "Bader API is running", "status": "ok"}
 
-from app.api import auth, members
+from app.api import auth, members, backup, sync, licenses
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(members.router, prefix="/api/v1/members", tags=["members"])
+app.include_router(backup.router, prefix="/api/v1/backup", tags=["backup"])
+app.include_router(sync.router, prefix="/api/v1/sync", tags=["sync"])
+app.include_router(licenses.router, prefix="/api/v1/licenses", tags=["licenses"])
