@@ -8,6 +8,14 @@ const menuItems = [
     { path: '/mali/gelirler', label: 'Gelirler', icon: '📈' },
     { path: '/mali/giderler', label: 'Giderler', icon: '📉' },
     { path: '/mali/kasalar', label: 'Kasalar', icon: '🏦' },
+    { path: '/etkinlikler', label: 'Etkinlikler', icon: '🎉' },
+    { path: '/toplantilar', label: 'Toplantılar', icon: '🤝' },
+    { path: '/demirbaslar', label: 'Demirbaşlar', icon: '🪑' },
+    { path: '/belgeler', label: 'Belgeler', icon: '📂' },
+    { path: '/butce', label: 'Bütçe', icon: '⚖️' },
+    { path: '/cari', label: 'Cari', icon: '💳' },
+    { path: '/arsiv', label: 'Arşiv', icon: '📦' },
+    { path: '/koy', label: 'Köy İşlemleri', icon: '🚜' },
     { path: '/raporlar', label: 'Raporlar', icon: '📋' },
     { path: '/ayarlar/genel', label: 'Ayarlar', icon: '⚙️' },
 ];
@@ -48,8 +56,8 @@ function Sidebar() {
                             key={item.path}
                             to={item.path}
                             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group ${isActive
-                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                                 }`}
                         >
                             <span className={`text-lg transition-transform group-hover:scale-110 ${isActive ? 'scale-110' : ''}`}>{item.icon}</span>

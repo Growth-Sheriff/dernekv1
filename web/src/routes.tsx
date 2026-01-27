@@ -37,12 +37,51 @@ import GiderTuruYonetimiPage from './pages/mali/gider-turu-yonetimi';
 import YilSonuDevirPage from './pages/mali/yilsonu-devir';
 import KurlarPage from './pages/mali/kurlar';
 
+// Etkinlikler
+import EtkinliklerListPage from './pages/etkinlikler/list';
+import EtkinliklerCreatePage from './pages/etkinlikler/create';
+import EtkinliklerDetailPage from './pages/etkinlikler/detail';
+
+// Toplantılar
+import ToplantilarListPage from './pages/toplantilar/list';
+import ToplantilarCreatePage from './pages/toplantilar/create';
+import ToplantilarDetailPage from './pages/toplantilar/detail';
+
 // Raporlar
 import RaporlarIndexPage from './pages/raporlar/index';
+// Diğer rapor sayfaları import edilecek...
+
+// Belgeler
+import BelgelerListPage from './pages/belgeler/list';
+
+// Arşiv
+import ArsivPage from './pages/arsiv';
+
+// Bütçe
+import ButceListPage from './pages/butce/list';
+import ButceCreatePage from './pages/butce/create';
+import ButceDetailPage from './pages/butce/detail';
+
+// Demirbaşlar
+import { DemirbaslarListPage, DemirbasCreatePage, DemirbasDetailPage, DemirbasTopluPage } from './pages/demirbaslar';
+
+// Cari
+import { CariListPage, CariCreatePage, CariDetailPage } from './pages/cari';
+
+// Vadeli İşlemler
+import { VadeliIslemlerListPage } from './pages/vadeli-islemler';
+
+// Köy
+import KoyIndexPage from './pages/koy/index';
+import KoyKasalarPage from './pages/koy/kasalar';
+import KoyGelirlerPage from './pages/koy/gelirler';
+import KoyGiderlerPage from './pages/koy/giderler';
+import KoyVirmanlarPage from './pages/koy/virmanlar';
 
 // Ayarlar
 import AyarlarGenelPage from './pages/ayarlar/genel';
-
+import AyarlarKullanicilarPage from './pages/ayarlar/kullanicilar';
+import AyarlarYedeklemePage from './pages/ayarlar/yedekleme';
 
 // ============================================================================
 // Guards
@@ -60,7 +99,7 @@ export const routes: RouteObject[] = [
   },
   {
     path: '/admin',
-    element: <ProtectedGuard />, // Admin auth check required ideally
+    element: <ProtectedGuard />,
     children: [
       {
         element: <AdminLayout />,
@@ -118,15 +157,82 @@ export const routes: RouteObject[] = [
             ],
           },
           {
+            path: 'etkinlikler',
+            children: [
+              { index: true, element: <EtkinliklerListPage /> },
+              { path: 'create', element: <EtkinliklerCreatePage /> },
+              { path: ':id', element: <EtkinliklerDetailPage /> },
+            ],
+          },
+          {
+            path: 'toplantilar',
+            children: [
+              { index: true, element: <ToplantilarListPage /> },
+              { path: 'create', element: <ToplantilarCreatePage /> },
+              { path: ':id', element: <ToplantilarDetailPage /> },
+            ],
+          },
+          {
             path: 'raporlar',
             children: [
               { index: true, element: <RaporlarIndexPage /> },
             ]
           },
           {
+            path: 'belgeler',
+            element: <BelgelerListPage />,
+          },
+          {
+            path: 'butce',
+            children: [
+              { index: true, element: <ButceListPage /> },
+              { path: 'create', element: <ButceCreatePage /> },
+              { path: ':id', element: <ButceDetailPage /> },
+            ],
+          },
+          {
+            path: 'demirbaslar',
+            children: [
+              { index: true, element: <DemirbaslarListPage /> },
+              { path: 'create', element: <DemirbasCreatePage /> },
+              { path: 'toplu', element: <DemirbasTopluPage /> },
+              { path: ':id', element: <DemirbasDetailPage /> },
+              { path: ':id/edit', element: <DemirbasCreatePage /> },
+            ],
+          },
+          {
+            path: 'cari',
+            children: [
+              { index: true, element: <CariListPage /> },
+              { path: 'create', element: <CariCreatePage /> },
+              { path: ':id', element: <CariDetailPage /> },
+              { path: ':id/edit', element: <CariCreatePage /> },
+            ],
+          },
+          {
+            path: 'vadeli-islemler',
+            element: <VadeliIslemlerListPage />,
+          },
+          {
+            path: 'arsiv',
+            element: <ArsivPage />,
+          },
+          {
+            path: 'koy',
+            children: [
+              { index: true, element: <KoyIndexPage /> },
+              { path: 'kasalar', element: <KoyKasalarPage /> },
+              { path: 'gelirler', element: <KoyGelirlerPage /> },
+              { path: 'giderler', element: <KoyGiderlerPage /> },
+              { path: 'virmanlar', element: <KoyVirmanlarPage /> },
+            ],
+          },
+          {
             path: 'ayarlar',
             children: [
               { path: 'genel', element: <AyarlarGenelPage /> },
+              { path: 'kullanicilar', element: <AyarlarKullanicilarPage /> },
+              { path: 'yedekleme', element: <AyarlarYedeklemePage /> },
             ]
           }
         ]
