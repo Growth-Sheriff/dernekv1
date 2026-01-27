@@ -55,24 +55,95 @@ const mockStats = {
   kasa_bakiyesi: 32400
 };
 
-export async function invoke<T>(command: string, args?: any): Promise<T> {
-  console.log(`[Shim] invoke called: ${command}`, args);
+// Command Mapping: Desktop komutlarını Backend Endpointlerine çevirir
+const COMMAND_MAP: Record<string, { method: string, url: string }> = {
+  'login': { method: 'POST', url: '/auth/token' }, // Özel işlem gerekiyor (Form Data)
+  'get_uyeler': { method: 'GET', url: '/members' },
+  // Diğerleri için şimdilik map yok, mock dönecek
+};
 
-  // 1. Önce Backend'e istek atmayı dene (İleride aktif olacak)
-  /*
+// Token helper
+const getToken = () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/${command}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(args)
-    });
-    if (response.ok) return await response.json();
+    const store = localStorage.getItem('auth-storage');
+    if (store) {
+      const parsed = JSON.parse(store);
+      return parsed.state?.token;
+    }
   } catch (e) {
-    console.warn('[Shim] Backend connection failed, falling back to mock data');
+    return null;
   }
-  */
+  return null;
+};
 
-  // 2. MOCK DATA DÖN (Şimdilik her zaman burası çalışacak)
+export async function invoke<T>(command: string, args?: any): Promise<T> {
+  // console.log(`[Shim] invoke called: ${command}`, args);
+
+  // 1. Backend'e bağlanmayı dene (Eğer mapping varsa)
+  if (COMMAND_MAP[command]) {
+    try {
+      const endpoint = COMMAND_MAP[command];
+      const url = `${API_BASE_URL}${endpoint.url}`;
+      const token = getToken();
+
+      let options: RequestInit = {
+        method: endpoint.method,
+        headers: {}
+      };
+
+      if (token) {
+        (options.headers as any)['Authorization'] = `Bearer ${token}`;
+      }
+
+      // LOGIN ÖZEL DURUM: Form Data gönderilmeli
+      if (command === 'login') {
+        const formData = new FormData();
+        formData.append('username', args.email); // Backend username bekliyor
+        formData.append('password', args.password);
+        options.body = formData;
+      } else {
+        (options.headers as any)['Content-Type'] = 'application/json';
+        if (args) {
+          // GET isteklerinde query params
+          if (endpoint.method === 'GET') {
+            // Basit query params dönüşümü (args objesini url'e ekle)
+            // Şimdilik pas geçiyorum, backend zaten her şeyi döndürüyor
+          } else {
+            options.body = JSON.stringify(args);
+          }
+        }
+      }
+
+      const response = await fetch(url, options);
+
+      if (response.ok) {
+        const data = await response.json();
+        // LOGIN RESPONSE ADAPTASYONU (Backend yapısı -> Frontend'in beklediği yapı)
+        if (command === 'login') {
+          return {
+            user: data.user,
+            token: data.access_token,
+            tenant: data.tenant
+          } as any;
+        }
+        return data;
+      } else {
+        // 401 Unauthorized ise login hatasıdır
+        if (response.status === 401 && command === 'login') {
+          throw new Error('Giriş başarısız');
+        }
+        if (response.status === 401) {
+          console.warn('Token geçersiz, logout yapılmalı?');
+        }
+      }
+    } catch (e) {
+      console.warn(`[Shim] Backend request failed for ${command}:`, e);
+      if (command === 'login') throw e; // Login hatasını yutma, kullanıcıya göster
+    }
+  }
+
+
+  // 2. MOCK DATA DÖN (Backend başarısızsa veya map yoksa)
   return new Promise((resolve) => {
     setTimeout(() => {
       switch (command) {
@@ -99,16 +170,22 @@ export async function invoke<T>(command: string, args?: any): Promise<T> {
           resolve(32400 as any);
           break;
         case 'login':
-          resolve({
-            user: { id: '1', email: 'admin@dernek.com', full_name: 'Admin User' },
-            token: 'mock-token',
-            tenant: { id: '1', name: 'Demo Dernek' }
-          } as any);
+          // Mock login (Fallback)
+          if (args?.email?.includes('admin')) {
+            resolve({
+              user: { id: '1', email: args.email, full_name: 'Mock Admin', role: 'admin' },
+              token: 'mock-token',
+              tenant: { id: '1', name: 'Mock Dernek' }
+            } as any);
+          } else {
+            // Hata fırlat (Promise reject)
+            // resolve(null as any); 
+          }
           break;
         default:
-          console.warn(`[Shim] No mock data for command: ${command}`);
+          //   console.warn(`[Shim] No mock data for command: ${command}`);
           resolve([] as any);
       }
-    }, 500); // 500ms network delay simulation
+    }, 500);
   });
 }
