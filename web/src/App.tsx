@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRoutes, BrowserRouter } from 'react-router-dom';
 import { routes } from './routes';
+import { ThemeProvider } from '@/components/providers/theme-provider';
 import './styles/globals.css';
 import { Toaster } from 'sonner';
 
@@ -32,10 +33,12 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <AppRoutes />
-      <Toaster position="top-right" richColors />
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AppRoutes />
+        <Toaster position="top-right" richColors />
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

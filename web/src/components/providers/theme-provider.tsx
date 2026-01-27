@@ -24,10 +24,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    
+
     const updateTheme = () => {
       let resolved: 'light' | 'dark' = 'light';
-      
+
       if (theme === 'system') {
         resolved = window.matchMedia('(prefers-color-scheme: dark)').matches
           ? 'dark'
@@ -35,13 +35,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       } else {
         resolved = theme;
       }
-      
+
       setResolvedTheme(resolved);
-      
+
       // Update document class
       root.classList.remove('light', 'dark');
       root.classList.add(resolved);
-      
+
       // Update color-scheme for native elements
       root.style.colorScheme = resolved;
     };

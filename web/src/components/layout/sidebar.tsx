@@ -25,10 +25,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-// ============================================================================
-// Navigation configuration
-// ============================================================================
-
 interface NavItem {
   name: string;
   href: string;
@@ -38,7 +34,7 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard }, // Web'de root path dashboard
   { name: 'Üyeler', href: '/uyeler', icon: Users },
   {
     name: 'Aidat',
@@ -78,29 +74,18 @@ const navigation: NavItem[] = [
     icon: FileText,
     children: [
       { name: 'Genel Raporlar', href: '/raporlar', icon: FileText },
-      { name: 'Mali Raporlar', href: '/raporlar/mali', icon: TrendingUp },
-      { name: 'Aidat Raporları', href: '/raporlar/aidat', icon: CreditCard },
-      { name: 'Üye Raporları', href: '/raporlar/uyeler', icon: Users },
-      { name: 'Bilanço', href: '/raporlar/bilanco', icon: FileText },
-      { name: 'Mizan', href: '/raporlar/mizan', icon: FileText },
-      { name: 'Kesin Hesap', href: '/raporlar/kesin-hesap', icon: FileText },
-      { name: 'Kasa Raporu', href: '/raporlar/kasa', icon: Wallet },
     ],
   },
-  { name: 'Ayarlar', href: '/ayarlar', icon: Settings },
+  { name: 'Ayarlar', href: '/ayarlar/genel', icon: Settings },
 ];
 
 const simpleNavigation: NavItem[] = [
-  { name: 'Mali Özet', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Mali Özet', href: '/', icon: LayoutDashboard },
   { name: 'Aidat', href: '/aidat', icon: CreditCard },
   { name: 'Gelirler', href: '/mali/gelirler', icon: TrendingUp },
   { name: 'Giderler', href: '/mali/giderler', icon: TrendingDown },
-  { name: 'Ayarlar', href: '/ayarlar', icon: Settings },
+  { name: 'Ayarlar', href: '/ayarlar/genel', icon: Settings },
 ];
-
-// ============================================================================
-// Types
-// ============================================================================
 
 interface SidebarProps {
   className?: string;
@@ -111,10 +96,6 @@ interface SidebarItemProps {
   collapsed: boolean;
   depth?: number;
 }
-
-// ============================================================================
-// Premium Sidebar Item
-// ============================================================================
 
 const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 }) => {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -144,7 +125,6 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
             collapsed && 'justify-center px-2'
           )}
         >
-          {/* Active gradient background */}
           {isChildActive && (
             <div
               className="absolute inset-0 rounded-xl"
@@ -154,13 +134,10 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
               }}
             />
           )}
-
-          {/* Hover effect */}
           <div className={cn(
             'absolute inset-0 rounded-xl transition-all duration-300',
             isChildActive ? 'bg-transparent' : 'bg-transparent group-hover:bg-blue-50'
           )} />
-
           <div className="relative z-10 flex items-center gap-3 w-full">
             {Icon && (
               <Icon className={cn(
@@ -180,8 +157,6 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
             )}
           </div>
         </button>
-
-        {/* Submenu */}
         <div className={cn(
           'overflow-hidden transition-all duration-300 ease-out',
           !collapsed && isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
@@ -209,7 +184,6 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
         collapsed && 'justify-center px-2'
       )}
     >
-      {/* Active gradient background */}
       {isActive && depth === 0 && (
         <div
           className="absolute inset-0 rounded-xl"
@@ -222,19 +196,14 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
       {isActive && depth > 0 && (
         <div className="absolute inset-0 bg-blue-50 rounded-xl" />
       )}
-
-      {/* Hover effect */}
       <div className={cn(
         'absolute inset-0 rounded-xl transition-all duration-300',
         isActive ? 'bg-transparent' : 'bg-transparent group-hover:bg-blue-50'
       )} />
-
-      {/* Hover accent line */}
       <div className={cn(
         'absolute left-0 top-0 bottom-0 w-1 rounded-r-full transition-all duration-300',
         !isActive && 'bg-blue-500 scale-y-0 group-hover:scale-y-100'
       )} />
-
       <div className={cn(
         'relative z-10 flex items-center gap-3',
         isActive && depth === 0 ? 'text-white' : '',
@@ -250,8 +219,6 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
         )}
         {!collapsed && <span>{item.name}</span>}
       </div>
-
-      {/* Badge */}
       {item.badge && !collapsed && (
         <span
           className="relative z-10 ml-auto px-2 py-0.5 text-[10px] font-bold rounded-full"
@@ -266,10 +233,6 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ item, collapsed, depth = 0 })
     </NavLink>
   );
 };
-
-// ============================================================================
-// Premium Sidebar
-// ============================================================================
 
 export const Sidebar: React.FC<SidebarProps> = ({ className }) => {
   const [collapsed, setCollapsed] = React.useState(false);
@@ -300,15 +263,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ className }) => {
         boxShadow: '4px 0 24px -12px rgba(0,0,0,0.1)',
       }}
     >
-      {/* Decorative gradient overlay */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background: 'linear-gradient(135deg, rgba(59,130,246,0.03) 0%, transparent 50%, rgba(139,92,246,0.03) 100%)',
         }}
       />
-
-      {/* Animated accent line */}
       <div
         className="absolute top-0 left-0 right-0 h-1"
         style={{
@@ -317,8 +277,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ className }) => {
           animation: 'gradientMove 4s linear infinite',
         }}
       />
-
-      {/* Header */}
       <div className={cn(
         'flex items-center h-20 px-5 relative z-10',
         'border-b border-gray-100',
@@ -327,12 +285,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ className }) => {
         {!collapsed ? (
           <div className="flex items-center gap-3">
             <div className="relative">
-              {/* Logo glow */}
               <div
                 className="absolute inset-0 rounded-2xl blur-lg opacity-50"
                 style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)' }}
               />
-              {/* Logo */}
               <div
                 className="relative h-12 w-12 rounded-2xl flex items-center justify-center"
                 style={{
@@ -367,75 +323,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ className }) => {
         ) : (
           <div className="relative">
             <div
-              className="absolute inset-0 rounded-xl blur-lg opacity-50"
-              style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)' }}
-            />
-            <div
-              className="relative h-10 w-10 rounded-xl flex items-center justify-center"
-              style={{
-                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
-                boxShadow: '0 8px 24px -8px rgba(59,130,246,0.6)',
-              }}
+              className="relative h-10 w-10 rounded-xl flex items-center justify-center bg-blue-600 text-white font-bold"
             >
-              <span className="text-white font-black text-lg">B</span>
+              B
             </div>
           </div>
         )}
       </div>
 
-      {/* Quick Stats (when expanded) - Only in EXPERT MODE */}
-      {!collapsed && !isSimple && (
-        <div className="px-4 py-3 border-b border-gray-100">
-          <div
-            className="p-3 rounded-xl"
-            style={{
-              background: 'linear-gradient(135deg, rgba(59,130,246,0.08) 0%, rgba(139,92,246,0.08) 100%)',
-            }}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Zap className="w-4 h-4 text-amber-500" />
-              <span className="text-xs font-semibold text-gray-700">Bugün</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div>
-                <p className="text-lg font-bold text-blue-600">24</p>
-                <p className="text-[10px] text-gray-500">İşlem</p>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-emerald-600">+₺2.5k</p>
-                <p className="text-[10px] text-gray-500">Gelir</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1.5 relative z-10 scrollbar-thin">
         {currentNavigation.map((item) => (
           <SidebarItem key={item.name} item={item} collapsed={collapsed} />
         ))}
       </nav>
 
-      {/* Footer */}
       <div className="p-3 border-t border-gray-100 space-y-2 relative z-10">
-        {/* Upgrade Banner (when expanded) */}
-        {!collapsed && !isSimple && (
-          <div
-            className="p-3 rounded-xl mb-2 cursor-pointer transition-transform hover:scale-[1.02]"
-            style={{
-              background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
-            }}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <Crown className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-bold text-white">Premium Aktif</span>
-            </div>
-            <p className="text-[10px] text-gray-400">Tüm özelliklere erişiminiz var</p>
-          </div>
-        )}
-
-        {/* Logout Button */}
         <button
           onClick={handleLogout}
           className={cn(
@@ -449,30 +351,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ className }) => {
           <LogOut className="h-[18px] w-[18px] flex-shrink-0 relative z-10 group-hover:scale-110 transition-transform duration-300" />
           {!collapsed && <span className="relative z-10">Çıkış Yap</span>}
         </button>
-
-        {/* Collapse Button */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className={cn(
             'w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl',
             'text-gray-500 hover:text-gray-700',
-            'transition-all duration-300 group relative overflow-hidden',
             collapsed && 'justify-center px-2'
           )}
         >
-          <div className="absolute inset-0 rounded-xl bg-gray-50 opacity-0 group-hover:opacity-100 transition-all duration-300" />
-          {collapsed ? (
-            <PanelLeft className="h-[18px] w-[18px] relative z-10 group-hover:scale-110 transition-transform duration-300" />
-          ) : (
-            <>
-              <PanelLeftClose className="h-[18px] w-[18px] relative z-10 group-hover:scale-110 transition-transform duration-300" />
-              <span className="relative z-10">Daralt</span>
-            </>
-          )}
+          {collapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          {!collapsed && <span>Daralt</span>}
         </button>
       </div>
-
-      {/* CSS for gradient animation */}
       <style>{`
         @keyframes gradientMove {
           0% { background-position: 0% 50%; }
