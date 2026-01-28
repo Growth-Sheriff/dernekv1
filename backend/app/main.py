@@ -29,7 +29,7 @@ async def health():
     return {"status": "healthy"}
 
 from app.api import auth, licenses, sync
-from app.api.v1 import dashboard, gelirler, giderler
+from app.api.v1 import dashboard
 
 # Core auth and sync routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
@@ -38,11 +38,9 @@ app.include_router(sync.router, prefix="/api/v1", tags=["sync"])
 
 # Working v1 API routes
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
-app.include_router(gelirler.router, prefix="/api/v1/gelirler", tags=["gelirler"])
-app.include_router(giderler.router, prefix="/api/v1/giderler", tags=["giderler"])
 
-# NOTE: Other v1 modules (uyeler, aidat, kasalar, etc.) have import issues
-# They use old 'app.core.database' instead of 'app.core.db'
-# TODO: Fix these modules to use the correct imports
+# NOTE: Other v1 modules (uyeler, gelirler, giderler, aidat, kasalar, etc.) have import issues
+# They use old models that don't exist in app.models.base
+# For now, sync is handled through the /api/v1/sync endpoints
 
 
