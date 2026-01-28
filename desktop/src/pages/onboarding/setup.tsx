@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
+import api from '@/lib/api';
 
 interface TenantData {
   name: string;
@@ -65,10 +66,12 @@ export const OnboardingSetupPage: React.FC = () => {
     }
   };
 
+
+
   const handleComplete = async () => {
     console.log('🔵 handleComplete çağrıldı');
     console.log('📝 Form data:', formData);
-    
+
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.admin_email)) {
@@ -76,85 +79,126 @@ export const OnboardingSetupPage: React.FC = () => {
       setPasswordError('Geçerli bir email adresi girin');
       return;
     }
-    
+
     // Şifre eşleşme kontrolü
     if (formData.admin_password !== formData.admin_password_confirm) {
       toast.error('Şifreler eşleşmiyor!');
       setPasswordError('Şifreler eşleşmiyor!');
       return;
     }
-    
+
     // Güçlü şifre kontrolü
     if (formData.admin_password.length < 8) {
       toast.error('Şifre en az 8 karakter olmalıdır');
       setPasswordError('Şifre en az 8 karakter olmalıdır');
       return;
     }
-    
+
     if (!/[A-Z]/.test(formData.admin_password)) {
       toast.error('Şifre en az 1 büyük harf içermelidir');
       setPasswordError('Şifre en az 1 büyük harf içermelidir');
       return;
     }
-    
+
     if (!/[a-z]/.test(formData.admin_password)) {
       toast.error('Şifre en az 1 küçük harf içermelidir');
       setPasswordError('Şifre en az 1 küçük harf içermelidir');
       return;
     }
-    
+
     if (!/[0-9]/.test(formData.admin_password)) {
       toast.error('Şifre en az 1 rakam içermelidir');
       setPasswordError('Şifre en az 1 rakam içermelidir');
       return;
     }
-    
+
     setPasswordError('');
-    
+
     // License key'i localStorage'dan al
     const validatedLicenseKey = localStorage.getItem('validated_license_key');
+    const licenseMode = localStorage.getItem('license_mode'); // 'hybrid' or 'local'
+
     if (!validatedLicenseKey) {
       toast.error('Lisans bilgisi bulunamadı. Lütfen lisans sayfasına dönün.');
       navigate('/onboarding/license');
       return;
     }
-    
+
     setLoading(true);
     try {
-      console.log('🚀 Backend invoke başlıyor...');
-      console.log('🔑 License key:', validatedLicenseKey);
-      
+      console.log('🚀 Setup başlıyor... Mod:', licenseMode);
+
       // Dinamik import - Tauri hazır olduğunda çalışır
       const { invoke } = await import('@tauri-apps/api/core');
-      
-      // Backend'e tenant oluşturma isteği gönder
-      const response = await invoke<{ tenant_id: string; user_id: string; message: string }>('create_tenant', {
-        data: {
-          license_key: validatedLicenseKey, // License key eklendi
-          name: formData.name,
-          slug: formData.slug,
-          admin_name: formData.admin_name,
-          admin_email: formData.admin_email,
-          admin_password: formData.admin_password,
-          phone: formData.phone || null,
-          address: formData.address || null,
-        },
+
+      let tenantId = '';
+      let userId = '';
+
+      // 1. EĞER HYBRID MOD İSE -> ÖNCE SUNUCUDA OLUŞTUR
+      if (licenseMode === 'hybrid') {
+        try {
+          console.log('🌐 Sunucuda tenant oluşturuluyor...');
+          const serverResponse = await api.post<{ success: boolean, tenant_id: string, user_id: string, message: string }>('/auth/register-hybrid', {
+            email: formData.admin_email,
+            password: formData.admin_password,
+            name: formData.admin_name,
+            tenant_name: formData.name,
+            license_key: validatedLicenseKey,
+            slug: formData.slug,
+            phone: formData.phone,
+            address: formData.address
+          });
+
+          if (serverResponse.success) {
+            console.log('✅ Sunucu kayıt başarılı:', serverResponse);
+            tenantId = serverResponse.tenant_id;
+            userId = serverResponse.user_id;
+          } else {
+            throw new Error(serverResponse.message || 'Sunucu kaydı başarısız');
+          }
+
+        } catch (serverError: any) {
+          console.error('❌ Sunucu kayıt hatası:', serverError);
+          toast.error('Sunucu ile iletişim kurulamadı: ' + (serverError.message || 'Bilinmeyen hata'));
+          setLoading(false);
+          return; // Sunucu kaydı başarısızsa devam etme
+        }
+      }
+
+      // 2. YEREL VERİTABANINDA OLUŞTUR (ID'leri sunucudan aldıysak onları kullan, yoksa yeni üret)
+      console.log('🏠 Yerel veritabanı güncelleniyor...');
+
+      const localResponse = await invoke<{ tenant_id: string; user_id: string; message: string }>('create_tenant', {
+        request: {
+          data: {
+            license_key: validatedLicenseKey,
+            name: formData.name,
+            slug: formData.slug,
+            admin_name: formData.admin_name,
+            admin_email: formData.admin_email,
+            admin_password: formData.admin_password,
+            phone: formData.phone || null,
+            address: formData.address || null,
+          },
+          server_ids: (tenantId && userId) ? { tenant_id: tenantId, user_id: userId } : null
+        }
       });
 
-      console.log('✅ Tenant oluşturuldu:', response);
+      console.log('✅ Yerel kurulum tamamlandı:', localResponse);
 
-      // Kurulum tamamlandı, license key'i temizle
+      // Kurulum tamamlandı temizliği
       localStorage.removeItem('validated_license_key');
-      
+      localStorage.removeItem('license_mode');
+
       toast.success('Kurulum başarıyla tamamlandı! Giriş sayfasına yönlendiriliyorsunuz...');
-      
-      // Sayfayı yenile ki App.tsx hasSetup kontrolü tekrar çalışsın
+
       setTimeout(() => {
         window.location.href = '/';
       }, 1000);
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Setup hatası:', error);
-      toast.error('Kurulum sırasında hata: ' + error);
+      toast.error('Kurulum sırasında hata: ' + (error.message || error));
     } finally {
       setLoading(false);
     }
@@ -183,17 +227,15 @@ export const OnboardingSetupPage: React.FC = () => {
                 {[1, 2].map((num) => (
                   <React.Fragment key={num}>
                     <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        step >= num ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                      }`}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= num ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
+                        }`}
                     >
                       {num}
                     </div>
                     {num < 2 && (
                       <div
-                        className={`flex-1 h-1 mx-2 ${
-                          step > num ? 'bg-blue-600' : 'bg-gray-200'
-                        }`}
+                        className={`flex-1 h-1 mx-2 ${step > num ? 'bg-blue-600' : 'bg-gray-200'
+                          }`}
                       />
                     )}
                   </React.Fragment>

@@ -6,9 +6,21 @@ from datetime import datetime
 from typing import Optional
 
 
+
 class EtkinlikBase(BaseModel):
     """Base Etkinlik schema"""
-    pass
+    etkinlik_tipi: Optional[str] = "DİĞER"
+    baslik: str
+    aciklama: Optional[str] = None
+    baslangic_tarihi: datetime
+    bitis_tarihi: Optional[datetime] = None
+    yer: Optional[str] = None
+    durum: str = "Planlandı"
+    katilimci_sayisi: Optional[int] = 0
+    tahmini_butce: Optional[float] = 0.0
+    gerceklesen_butce: Optional[float] = 0.0
+    notlar: Optional[str] = None
+    sorumlu_uye_id: Optional[UUID4] = None
 
 
 class EtkinlikCreate(EtkinlikBase):
@@ -18,7 +30,18 @@ class EtkinlikCreate(EtkinlikBase):
 
 class EtkinlikUpdate(BaseModel):
     """Update Etkinlik schema"""
-    pass
+    etkinlik_tipi: Optional[str] = None
+    baslik: Optional[str] = None
+    aciklama: Optional[str] = None
+    baslangic_tarihi: Optional[datetime] = None
+    bitis_tarihi: Optional[datetime] = None
+    yer: Optional[str] = None
+    durum: Optional[str] = None
+    katilimci_sayisi: Optional[int] = None
+    tahmini_butce: Optional[float] = None
+    gerceklesen_butce: Optional[float] = None
+    notlar: Optional[str] = None
+    sorumlu_uye_id: Optional[UUID4] = None
 
 
 class EtkinlikInDB(EtkinlikBase):
@@ -35,3 +58,4 @@ class EtkinlikInDB(EtkinlikBase):
 class EtkinlikResponse(EtkinlikInDB):
     """Response Etkinlik schema"""
     pass
+

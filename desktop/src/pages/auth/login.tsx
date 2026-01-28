@@ -14,7 +14,7 @@ export const LoginPage: React.FC = () => {
   const saveCredentials = useAuthStore((state) => state.saveCredentials);
   const savedCredentials = useAuthStore((state) => state.savedCredentials);
   const setMode = useLicenseStore((state) => state.setMode);
-  
+
   const { register, handleSubmit, formState: { errors, isSubmitting }, setValue } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -55,16 +55,16 @@ export const LoginPage: React.FC = () => {
     try {
       if (data.mode === 'LOCAL') {
         // LOCAL modda basit email/password kontrolü
-        
+
         // Önce tenant var mı kontrol et
         const setupResult = await invoke<{ count: number }>('check_initial_setup');
-        
+
         if (setupResult.count === 0) {
           alert('❌ Sistemde hiç tenant bulunmuyor. Lütfen önce ilk kurulumu tamamlayın.');
           navigate('/onboarding/welcome');
           return;
         }
-        
+
         // Backend'den gerçek tenant ve kullanıcı bilgilerini al
         const result = await invoke<{
           user: { id: string; email: string; full_name: string; tenant_id: string };
@@ -74,7 +74,7 @@ export const LoginPage: React.FC = () => {
           email: data.email,
           password: data.password,
         });
-        
+
         // Beni Hatırla ayarını kaydet + şifreyi de kaydet
         setRememberMe(data.rememberMe ?? true);
         if (data.rememberMe) {
@@ -178,8 +178,24 @@ export const LoginPage: React.FC = () => {
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-600">
-            <p>LOCAL mod: Offline çalışma</p>
-            <p className="text-xs text-gray-400 mt-1">ONLINE ve HYBRID yakında aktif olacak</p>
+            <p className="font-medium text-gray-500">v3.0.0 Stable</p>
+            <button
+              onClick={async () => {
+                if (confirm('⚠️ DİKKAT: Bu işlem tüm yerel verilerinizi SİLECEKTİR ve uygulamayı fabrik ayarlarına döndürecektir. Onaylıyor musunuz?') && confirm('Son kararınız mı? Tüm veriler silinecek!')) {
+                  try {
+                    await invoke('reset_application');
+                    localStorage.clear(); // LocalStorage'ı da temizle
+                    alert('Uygulama sıfırlandı. Yeniden başlatılıyor...');
+                    window.location.reload();
+                  } catch (e) {
+                    alert('Sıfırlama hatası: ' + e);
+                  }
+                }
+              }}
+              className="mt-4 text-xs text-red-500 hover:text-red-700 hover:underline cursor-pointer"
+            >
+              Uygulamayı Sıfırla (Fabrika Ayarları)
+            </button>
           </div>
         </div>
       </div>

@@ -18,32 +18,11 @@ import {
 import { SmartAssistant, AssistantInsight } from '@/components/ai/SmartAssistant';
 
 interface DashboardStats {
-  total_uyeler: number;
-  aktif_uyeler: number;
-  pasif_uyeler: number;
-  bekleyen_uyeler: number;
-}
-
-interface AidatStats {
-  toplam_tutar: number;
-  toplam_odenen: number;
-  toplam_kalan: number;
-  odenen_adet: number;
-  geciken_adet: number;
-}
-
-interface KasaStats {
-  toplam_bakiye: number;
-  toplam_gelir: number;
-  toplam_gider: number;
-  kasa_sayisi: number;
-}
-
-interface GuncelKur {
-  para_birimi: string;
-  hedef_para_birimi: string;
-  kur_degeri: number;
-  gecerlilik_baslangic: string;
+  toplam_uye: number;
+  aktif_uye: number;
+  aylik_gelir: number;
+  aylik_gider: number;
+  kasa_bakiyesi: number;
 }
 
 // ============================================================================
@@ -247,16 +226,21 @@ const animationStyles = `
   }
 `;
 
-export const DashboardIndexPage: React.FC = () => {
+const DashboardIndexPage: React.FC = () => {
   const navigate = useNavigate();
+
   const tenant = useAuthStore((state) => state.tenant);
   const { pendingChanges, lastSyncAt, loadSyncStatus } = useSyncStore();
   const { isSimple } = useViewMode();
 
-  const [uyeStats, setUyeStats] = React.useState<DashboardStats>({ total_uyeler: 0, aktif_uyeler: 0, pasif_uyeler: 0, bekleyen_uyeler: 0 });
-  const [aidatStats, setAidatStats] = React.useState<AidatStats | null>(null);
-  const [kasaStats, setKasaStats] = React.useState<KasaStats | null>(null);
-  const [guncelKurlar, setGuncelKurlar] = React.useState<GuncelKur[]>([]);
+  const [stats, setStats] = React.useState<DashboardStats>({
+    toplam_uye: 0,
+    aktif_uye: 0,
+    aylik_gelir: 0,
+    aylik_gider: 0,
+    kasa_bakiyesi: 0
+  });
+
   const [loading, setLoading] = React.useState(true);
 
   // Load Stats Function
@@ -264,17 +248,8 @@ export const DashboardIndexPage: React.FC = () => {
     if (!tenant) return;
     try {
       setLoading(true);
-      const uyeData = await invoke<DashboardStats>('get_dashboard_stats', { tenantIdParam: tenant.id });
-      setUyeStats(uyeData);
-      const currentYear = new Date().getFullYear();
-      const aidatData = await invoke<AidatStats>('get_aidat_stats', { tenantIdParam: tenant.id, yil: currentYear });
-      setAidatStats(aidatData);
-      const kasaData = await invoke<KasaStats>('get_kasa_stats', { tenantIdParam: tenant.id });
-      setKasaStats(kasaData);
-      try {
-        const kurData = await invoke<GuncelKur[]>('get_guncel_kurlar', { tenantIdParam: tenant.id });
-        setGuncelKurlar(kurData);
-      } catch { /* ignore */ }
+      const data = await invoke<DashboardStats>('get_dashboard_stats', { tenantIdParam: tenant.id });
+      setStats(data);
     } catch (error) {
       console.error('Failed to load stats:', error);
     } finally {
@@ -283,92 +258,58 @@ export const DashboardIndexPage: React.FC = () => {
   };
 
   React.useEffect(() => {
-    if (!tenant) return;
+    if (!tenant) {
+      setLoading(false); // Tenant yoksa loading'i kapat
+      return;
+    }
     loadStats();
     loadSyncStatus(tenant.id);
   }, [tenant]);
 
   // Chart data
   const monthlyData = React.useMemo(() => {
+    // Demo data for chart trend (since backend only returns aggregates for now)
+    // Ideally backend should return monthly breakdown
     const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
     const currentMonth = new Date().getMonth();
     return months.slice(0, currentMonth + 1).map((name) => ({
       name,
-      gelir: kasaStats ? Math.round(kasaStats.toplam_gelir / (currentMonth + 1) * (0.7 + Math.random() * 0.6)) : 0,
-      gider: kasaStats ? Math.round(kasaStats.toplam_gider / (currentMonth + 1) * (0.6 + Math.random() * 0.8)) : 0,
+      gelir: stats.aylik_gelir * (0.5 + Math.random() * 0.5), // Pseudo-random distribution for demo visual
+      gider: stats.aylik_gider * (0.5 + Math.random() * 0.5),
     }));
-  }, [kasaStats]);
+  }, [stats]);
 
   const uyeDagilimi = React.useMemo(() => [
-    { name: 'Aktif', value: uyeStats.aktif_uyeler },
-    { name: 'Pasif', value: uyeStats.pasif_uyeler },
-    { name: 'Bekleyen', value: uyeStats.bekleyen_uyeler },
-  ].filter(item => item.value > 0), [uyeStats]);
+    { name: 'Aktif', value: stats.aktif_uye },
+    { name: 'Diğer', value: stats.toplam_uye - stats.aktif_uye },
+  ].filter(item => item.value > 0), [stats]);
 
   const weeklyActivity = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map(name => ({ name, value: Math.round(20 + Math.random() * 80) }));
 
-  // AI Insights Static
+  // AI Insights - basic based on available data
   const aiInsights = React.useMemo(() => [
-    `Bu ay ${uyeStats.aktif_uyeler} aktif üyeniz var. Geçen aya göre %12 artış!`,
-    `Aidat tahsilat oranınız ${aidatStats && aidatStats.toplam_tutar > 0 ? ((aidatStats.toplam_odenen / aidatStats.toplam_tutar) * 100).toFixed(0) : 0}%. Hatırlatma gönderin.`,
-    `En yoğun gün Salı. Toplantıları bu güne planlayın.`,
-  ], [uyeStats, aidatStats]);
+    `Bu ay ${stats.aktif_uye} aktif üyeniz var.`,
+    `Aylık gelir: ${stats.aylik_gelir} ₺`,
+    `Giderleriniz kontrol altında mı?`,
+  ], [stats]);
 
   // Smart Assistant Data Generator
   const smartInsights = React.useMemo<AssistantInsight[]>(() => {
     const list: AssistantInsight[] = [];
-
-    // 1. Kritik Analiz: Tahsilat
-    if (aidatStats) {
-      if (aidatStats.toplam_tutar > 0) {
-        const oran = (aidatStats.toplam_odenen / aidatStats.toplam_tutar) * 100;
-        if (oran < 50) {
-          list.push({
-            type: 'warning',
-            message: `Dikkat! Tahsilat oranı %${oran.toFixed(0)} seviyesinde kaldı. Nakit akışı dengesi için hatırlatma yapmalısınız.`,
-            action: { label: 'Hatırlat', onClick: () => navigate('/aidat') }
-          });
-        }
-      }
-
-      if (aidatStats.geciken_adet > 5) {
-        list.push({
-          type: 'warning',
-          message: `${aidatStats.geciken_adet} üyenin aidatı gecikmiş durumda.`,
-          action: { label: 'Listeyi Gör', onClick: () => navigate('/aidat') }
-        });
-      }
-    }
-
-    // 2. Fırsat: Büyüme
-    if (uyeStats.bekleyen_uyeler > 0) {
+    if (stats.aylik_gider > stats.aylik_gelir) {
       list.push({
-        type: 'info',
-        message: `${uyeStats.bekleyen_uyeler} yeni üye başvurusu onay bekliyor. Onaylayarak geliri artırabilirsiniz.`,
-        action: { label: 'Onayla', onClick: () => navigate('/uyeler') }
+        type: 'warning',
+        message: `Dikkat! Bu ay giderleriniz gelirlerinizi geçti.`,
+        action: { label: 'Giderleri İncele', onClick: () => navigate('/mali/giderler') }
       });
     }
-
-    // 3. Yapay Zeka Tahmini (Mock)
-    list.push({
-      type: 'prediction',
-      message: 'Geçmiş verilere göre, önümüzdeki ay aidat gelirlerinde %15 artış ve etkinlik katılımında yükseliş öngörülüyor.',
-    });
-
-    // 4. Başarı
-    if (uyeStats.aktif_uyeler > 10) {
-      list.push({
-        type: 'success',
-        message: `Tebrikler! Aktif üye sayınız sağlıklı bir büyüme trendinde.`,
-      });
-    }
-
     return list;
-  }, [uyeStats, aidatStats, navigate]);
+  }, [stats]);
 
-  const tahsilatOrani = aidatStats && aidatStats.toplam_tutar > 0 ? (aidatStats.toplam_odenen / aidatStats.toplam_tutar) * 100 : 0;
+  const tahsilatOrani = stats.aylik_gelir > 0 ? Math.min(100, Math.round((stats.aylik_gelir / (stats.aktif_uye * 100 || 1)) * 100)) : 0;
 
-  // Conditionals MUST be after all hooks
+
+  // Conditionals
   if (isSimple) {
     return <SimpleFinancePage />;
   }
@@ -441,58 +382,41 @@ export const DashboardIndexPage: React.FC = () => {
                 <Users className="w-5 h-5 text-white" />
               </div>
             </div>
-            <GlowingCounter value={uyeStats.total_uyeler} color="#3b82f6" />
+            <GlowingCounter value={stats.toplam_uye} color="#3b82f6" />
             <div className="mt-2 flex items-center gap-1 text-xs text-emerald-600">
-              <ArrowUpRight className="w-3 h-3" />
-              <span>+12% bu ay</span>
+              <span>Aktif: {stats.aktif_uye}</span>
             </div>
           </Premium3DCard>
 
-          {kasaStats && (
-            <>
-              <Premium3DCard className="p-5" glowColor="#8b5cf6" onClick={() => navigate('/mali/kasalar')}>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-600">Toplam Bakiye</span>
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-purple-400 to-purple-600 shadow-lg shadow-purple-500/30">
-                    <Wallet className="w-5 h-5 text-white" />
-                  </div>
-                </div>
-                <GlowingCounter value={kasaStats.toplam_bakiye * 100} suffix="₺" color="#8b5cf6" decimals={2} />
-                <div className="mt-2 flex items-center gap-1 text-xs text-emerald-600">
-                  <ArrowUpRight className="w-3 h-3" />
-                  <span>+8% bu ay</span>
-                </div>
-              </Premium3DCard>
+          <Premium3DCard className="p-5" glowColor="#8b5cf6" onClick={() => navigate('/mali/kasalar')}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-gray-600">Kasa Bakiyesi</span>
+              <div className="p-2 rounded-xl bg-gradient-to-br from-purple-400 to-purple-600 shadow-lg shadow-purple-500/30">
+                <Wallet className="w-5 h-5 text-white" />
+              </div>
+            </div>
+            <GlowingCounter value={stats.kasa_bakiyesi} suffix="₺" color="#8b5cf6" decimals={2} />
+          </Premium3DCard>
 
-              <Premium3DCard className="p-5" glowColor="#10b981" onClick={() => navigate('/mali/gelirler')}>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-600">Toplam Gelir</span>
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/30">
-                    <TrendingUp className="w-5 h-5 text-white" />
-                  </div>
-                </div>
-                <GlowingCounter value={kasaStats.toplam_gelir * 100} suffix="₺" color="#10b981" decimals={2} />
-                <div className="mt-2 flex items-center gap-1 text-xs text-emerald-600">
-                  <Flame className="w-3 h-3" />
-                  <span>Rekor ay!</span>
-                </div>
-              </Premium3DCard>
+          <Premium3DCard className="p-5" glowColor="#10b981" onClick={() => navigate('/mali/gelirler')}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-gray-600">Aylık Gelir</span>
+              <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-lg shadow-emerald-500/30">
+                <TrendingUp className="w-5 h-5 text-white" />
+              </div>
+            </div>
+            <GlowingCounter value={stats.aylik_gelir} suffix="₺" color="#10b981" decimals={2} />
+          </Premium3DCard>
 
-              <Premium3DCard className="p-5" glowColor="#f59e0b" onClick={() => navigate('/mali/giderler')}>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-600">Toplam Gider</span>
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-orange-500/30">
-                    <TrendingDown className="w-5 h-5 text-white" />
-                  </div>
-                </div>
-                <GlowingCounter value={kasaStats.toplam_gider * 100} suffix="₺" color="#f59e0b" decimals={2} />
-                <div className="mt-2 flex items-center gap-1 text-xs text-red-500">
-                  <ArrowDownRight className="w-3 h-3" />
-                  <span>-5% bu ay</span>
-                </div>
-              </Premium3DCard>
-            </>
-          )}
+          <Premium3DCard className="p-5" glowColor="#f59e0b" onClick={() => navigate('/mali/giderler')}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-gray-600">Aylık Gider</span>
+              <div className="p-2 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-orange-500/30">
+                <TrendingDown className="w-5 h-5 text-white" />
+              </div>
+            </div>
+            <GlowingCounter value={stats.aylik_gider} suffix="₺" color="#f59e0b" decimals={2} />
+          </Premium3DCard>
         </div>
 
         {/* Main Content Grid */}
@@ -689,8 +613,8 @@ export const DashboardIndexPage: React.FC = () => {
             </div>
           </Premium3DCard>
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

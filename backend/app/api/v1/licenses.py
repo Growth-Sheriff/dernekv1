@@ -1,81 +1,130 @@
 """
 Licenses API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
 
-from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.user import User
-from app.schemas.licenses import LicensesCreate, LicensesUpdate, LicensesResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+
+from app.core.db import get_session
+from app.api.auth import get_current_user
+from app.models.base import User, License, UserRole
+from app.schemas.license import LicenseCreate, LicenseUpdate, LicenseResponse
 
 router = APIRouter()
 
+@router.get("/my-license", response_model=LicenseResponse)
+async def get_my_license(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Mevcut kullanıcının tenant'ına ait lisansı döndürür.
+    """
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=404, detail="No tenant associated")
+        
+    license = session.exec(select(License).where(License.tenant_id == current_user.tenant_id, License.is_active == True)).first()
+    if not license:
+         raise HTTPException(status_code=404, detail="No active license found")
+    return license
 
-@router.get("/", response_model=List[LicensesResponse])
+@router.get("/", response_model=List[LicenseResponse])
 async def list_licenses(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Licenses listesi
+    Licenses listesi (Super Admin)
     """
-    # TODO: Implement listing
-    return []
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    return session.exec(select(License).offset(skip).limit(limit)).all()
 
 
-@router.post("/", response_model=LicensesResponse, status_code=status.HTTP_201_CREATED)
-async def create_licenses(
-    data: LicensesCreate,
-    db: Session = Depends(get_db),
+@router.post("/", response_model=LicenseResponse, status_code=status.HTTP_201_CREATED)
+async def create_license(
+    data: LicenseCreate,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Yeni licenses oluştur
+    Yeni license oluştur (Super Admin)
     """
-    # TODO: Implement creation
-    raise HTTPException(status_code=501, detail="Not implemented")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    db_obj = License.from_orm(data)
+    session.add(db_obj)
+    session.commit()
+    session.refresh(db_obj)
+    return db_obj
 
 
-@router.get("/{item_id}", response_model=LicensesResponse)
-async def get_licenses(
-    item_id: UUID,
-    db: Session = Depends(get_db),
+@router.get("/{item_id}", response_model=LicenseResponse)
+async def get_license(
+    item_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Licenses detayı
+    License detayı
     """
-    # TODO: Implement retrieval
-    raise HTTPException(status_code=404, detail="Not found")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    obj = session.get(License, item_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="License not found")
+    return obj
 
 
-@router.put("/{item_id}", response_model=LicensesResponse)
-async def update_licenses(
-    item_id: UUID,
-    data: LicensesUpdate,
-    db: Session = Depends(get_db),
+@router.put("/{item_id}", response_model=LicenseResponse)
+async def update_license(
+    item_id: str,
+    data: LicenseUpdate,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Licenses güncelle
+    License güncelle
     """
-    # TODO: Implement update
-    raise HTTPException(status_code=404, detail="Not found")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    obj = session.get(License, item_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="License not found")
+        
+    obj_data = data.dict(exclude_unset=True)
+    for key, value in obj_data.items():
+        setattr(obj, key, value)
+        
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    return obj
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_licenses(
-    item_id: UUID,
-    db: Session = Depends(get_db),
+async def delete_license(
+    item_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Licenses sil
+    License sil
     """
-    # TODO: Implement deletion
-    raise HTTPException(status_code=404, detail="Not found")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    obj = session.get(License, item_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="License not found")
+        
+    session.delete(obj)
+    session.commit()

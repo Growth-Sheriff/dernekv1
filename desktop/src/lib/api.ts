@@ -6,7 +6,8 @@
 import { fetch } from '@tauri-apps/plugin-http';
 
 // API Base URL - Production'da değiştirilecek
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.bader.app/api/v1';
+// API Base URL - Production
+const API_BASE_URL = 'http://157.90.154.48:8000/api/v1';
 
 // API Response tipi
 interface ApiResponse<T> {
@@ -54,47 +55,62 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
-  
+
   // Auth token ekle
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
-  
+
   // Tenant ID ekle
   if (tenantId) {
     headers['X-Tenant-ID'] = tenantId;
   }
-  
+
   try {
+    console.log(`📡 [API Request] ${options.method || 'GET'} ${url}`);
+    console.log('Headers:', headers);
+
     const response = await fetch(url, {
       ...options,
       headers,
     });
-    
+
+    console.log(`📥 [API Response] ${response.status} ${response.statusText}`);
+
     // JSON yanıtı parse et
-    const data = await response.json() as ApiResponse<T>;
-    
+    const rawData = await response.json();
+    console.log('📦 [API Raw Response]', JSON.stringify(rawData, null, 2));
+
     if (!response.ok) {
+      console.error('❌ [API Error]', JSON.stringify(rawData, null, 2));
       throw new ApiError(
         response.status,
-        data.error || 'UNKNOWN_ERROR',
-        data.message || 'Bir hata oluştu'
+        rawData.error || 'UNKNOWN_ERROR',
+        rawData.message || rawData.detail || 'Bir hata oluştu'
       );
     }
-    
-    return data.data as T;
+
+    // Handle both wrapped ({ success: true, data: {...} }) and unwrapped ({ valid: true, ... }) responses
+    if (rawData && typeof rawData === 'object' && 'data' in rawData && rawData.success !== undefined) {
+      // Wrapped format
+      return rawData.data as T;
+    } else {
+      // Unwrapped format (direct response from backend)
+      return rawData as T;
+    }
   } catch (error) {
+    console.error('💥 [API Exception]', error);
     if (error instanceof ApiError) {
       throw error;
     }
-    
+
     // Network hatası
-    throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya bağlanılamadı');
+    throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya bağlanılamadı: ' + (error as Error).message);
   }
 }
 
@@ -171,7 +187,7 @@ export const licenseApi = {
    */
   validate: (licenseKey: string, hardwareId: string) =>
     post<LicenseValidation>('/licenses/validate', { license_key: licenseKey, hardware_id: hardwareId }),
-  
+
   /**
    * Lisans aktive et
    */
@@ -181,7 +197,7 @@ export const licenseApi = {
       hardware_id: hardwareId,
       tenant_name: tenantName,
     }),
-  
+
   /**
    * Lisans bilgilerini getir
    */
@@ -247,19 +263,43 @@ export const syncApi = {
    */
   push: (request: SyncPushRequest) =>
     post<SyncPushResponse>('/sync/push', request),
-  
+
   /**
    * Sunucudan değişiklikleri çek
    */
-  pull: (request: SyncPullRequest) =>
-    post<SyncPullResponse>('/sync/pull', request),
-  
+  pull: (tenantId: string, since?: string) =>
+    get<{ success: boolean; data: any; synced_at: string }>(`/sync/pull/${tenantId}${since ? `?since=${since}` : ''}`),
+
+  /**
+   * Tek üye sync
+   */
+  syncUye: (uye: Record<string, unknown>) =>
+    post<{ success: boolean; message: string; id: string }>('/sync/uye', uye),
+
+  /**
+   * Tek gelir sync
+   */
+  syncGelir: (gelir: Record<string, unknown>) =>
+    post<{ success: boolean; message: string; id: string }>('/sync/gelir', gelir),
+
+  /**
+   * Tek gider sync
+   */
+  syncGider: (gider: Record<string, unknown>) =>
+    post<{ success: boolean; message: string; id: string }>('/sync/gider', gider),
+
+  /**
+   * Tek kasa sync
+   */
+  syncKasa: (kasa: Record<string, unknown>) =>
+    post<{ success: boolean; message: string; id: string }>('/sync/kasa', kasa),
+
   /**
    * Conflict'leri çöz
    */
   resolveConflicts: (resolutions: ConflictResolution[]) =>
     post<{ success: boolean }>('/sync/conflicts/resolve', { resolutions }),
-  
+
   /**
    * Bekleyen conflict'leri getir
    */
@@ -304,25 +344,25 @@ export const authApi = {
    */
   login: (request: LoginRequest) =>
     post<LoginResponse>('/auth/login', request),
-  
+
   /**
    * Kayıt ol
    */
   register: (request: RegisterRequest) =>
     post<LoginResponse>('/auth/register', request),
-  
+
   /**
    * Token yenile
    */
   refreshToken: (refreshToken: string) =>
     post<{ access_token: string }>('/auth/refresh', { refresh_token: refreshToken }),
-  
+
   /**
    * Çıkış yap
    */
   logout: () =>
     post<{ success: boolean }>('/auth/logout'),
-  
+
   /**
    * Mevcut kullanıcı bilgisi
    */
@@ -349,7 +389,7 @@ export const tenantApi = {
    */
   get: (tenantId: string) =>
     get<Tenant>(`/tenants/${tenantId}`),
-  
+
   /**
    * Tenant güncelle
    */

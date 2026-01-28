@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { invoke } from '@tauri-apps/api/core';
+import api from '@/lib/api';
+import { toast } from 'sonner';
 
 interface LicenseInfo {
   license_key: string;
@@ -21,17 +24,25 @@ export const OnboardingLicensePage: React.FC = () => {
   const [licenseKey, setLicenseKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [deviceId, setDeviceId] = useState('');
+
+  useEffect(() => {
+    // Get Device ID on mount
+    const getDeviceId = async () => {
+      try {
+        const id = await invoke<string>('get_device_id');
+        setDeviceId(id);
+      } catch (err) {
+        console.error('Device ID error:', err);
+      }
+    };
+    getDeviceId();
+  }, []);
 
   const handleLicenseChange = (value: string) => {
-    const cleaned = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    
-    let formatted = '';
-    if (cleaned.length > 0) formatted = cleaned.slice(0, 5);
-    if (cleaned.length > 5) formatted += '-' + cleaned.slice(5, 9);
-    if (cleaned.length > 9) formatted += '-' + cleaned.slice(9, 13);
-    if (cleaned.length > 13) formatted += '-' + cleaned.slice(13, 17);
-    
-    setLicenseKey(formatted);
+    // Sadece alfanümerik ve tireye izin ver, otomatik formatlamayı kaldır
+    const cleaned = value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    setLicenseKey(cleaned);
     setError('');
   };
 
@@ -43,32 +54,79 @@ export const OnboardingLicensePage: React.FC = () => {
   const handleValidate = async () => {
     setLoading(true);
     setError('');
-    
+
     try {
-      console.log('🔵 License validation:', licenseKey);
-      
-      // Dinamik import - Tauri hazır olduğunda çalışır
-      const { invoke } = await import('@tauri-apps/api/core');
-      
+      console.log('🔵 License validation starting:', licenseKey);
+
+      // 1. Try REMOTE validation first (Hybrid Mode)
+      if (licenseKey !== 'DEMO-MODE-0000-0000') {
+        try {
+          console.log('🌐 Attempting remote validation...');
+          console.log('📡 API URL: http://157.90.154.48:8000/api/v1/licenses/validate');
+          console.log('📡 License Key:', licenseKey);
+
+          const remoteResult = await api.license.validate(licenseKey, deviceId || 'unknown-device');
+          console.log('✅ Remote Validation Result:', JSON.stringify(remoteResult));
+
+          if (remoteResult && remoteResult.valid === true) {
+            // Success - Save for next step
+            localStorage.setItem('validated_license_key', licenseKey);
+            localStorage.setItem('license_mode', 'hybrid');
+            if (remoteResult.license) {
+              localStorage.setItem('remote_license_info', JSON.stringify(remoteResult.license));
+            }
+
+            toast.success('Lisans doğrulandı (Online)');
+            navigate('/onboarding/setup');
+            return;
+          } else {
+            // Remote said invalid
+            const msg = remoteResult?.message || 'Lisans geçersiz veya süresi dolmuş';
+            console.error('❌ Remote validation returned invalid:', msg);
+            setError(msg);
+            setLoading(false);
+            return; // Stop here, don't fallback if remote explicitly rejected
+          }
+        } catch (networkError: any) {
+          console.error('❌ Remote validation EXCEPTION:', networkError);
+          console.error('❌ Error type:', typeof networkError);
+          console.error('❌ Error message:', networkError?.message);
+          console.error('❌ Error stack:', networkError?.stack);
+
+          // Show network error and fall through to local validation
+          toast.error('Sunucu bağlantı hatası, yerel mod deneniyor...');
+        }
+      }
+
+      // 2. Fallback to LOCAL validation (Offline/Demo)
+      console.log('🏠 Attempting local validation...');
       const result = await invoke<LicenseInfo>('validate_license', {
         request: { license_key: licenseKey }
       });
-      
-      console.log('✅ Result:', result);
-      
+
+      console.log('✅ Local Result:', result);
+
       if (!result.is_valid) {
         setError('Lisans süresi dolmuş');
         return;
       }
-      
+
       if (!result.is_active) {
         setError('Lisans aktif değil');
         return;
       }
-      
+
       localStorage.setItem('validated_license_key', result.license_key);
+      localStorage.setItem('license_mode', 'local');
+
+      if (licenseKey === 'DEMO-MODE-0000-0000') {
+        toast.info('Demo modu aktif edildi');
+      } else {
+        toast.success('Lisans doğrulandı (Offline Mod)');
+      }
+
       navigate('/onboarding/setup');
-      
+
     } catch (err: any) {
       console.error('❌ Error:', err);
       setError(err.toString() || 'Lisans doğrulama hatası');
@@ -77,7 +135,7 @@ export const OnboardingLicensePage: React.FC = () => {
     }
   };
 
-  const isValidFormat = licenseKey.length === 19;
+  const isValidFormat = licenseKey.length > 5;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center p-6">
@@ -100,11 +158,10 @@ export const OnboardingLicensePage: React.FC = () => {
             <Input
               id="license-key"
               type="text"
-              maxLength={19}
               value={licenseKey}
               onChange={(e) => handleLicenseChange(e.target.value)}
               className="text-center font-mono text-lg"
-              placeholder="BADER-XXXX-XXXX-XXXX"
+              placeholder="Lisans Anahtarı"
               disabled={loading}
             />
             <p className="text-xs text-gray-500">

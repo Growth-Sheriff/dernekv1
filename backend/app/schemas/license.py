@@ -6,31 +6,34 @@ from datetime import datetime
 from typing import Optional
 
 
+from app.models.base import LicenseType
+
 class LicenseBase(BaseModel):
     """Base License schema"""
-    pass
-
+    key: str
+    license_type: LicenseType = LicenseType.STANDARD
+    start_date: datetime
+    end_date: datetime
+    is_active: bool = True
 
 class LicenseCreate(LicenseBase):
     """Create License schema"""
-    pass
-
+    tenant_id: str
 
 class LicenseUpdate(BaseModel):
     """Update License schema"""
-    pass
-
+    license_type: Optional[LicenseType] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    is_active: Optional[bool] = None
 
 class LicenseInDB(LicenseBase):
     """Database License schema"""
     id: UUID4
     tenant_id: UUID4
-    created_at: datetime
-    updated_at: datetime
     
     class Config:
         from_attributes = True
-
 
 class LicenseResponse(LicenseInDB):
     """Response License schema"""

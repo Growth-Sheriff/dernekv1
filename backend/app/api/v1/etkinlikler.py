@@ -1,81 +1,129 @@
 """
 Etkinlikler API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
-from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.user import User
-from app.schemas.etkinlikler import EtkinliklerCreate, EtkinliklerUpdate, EtkinliklerResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+
+from app.core.db import get_session
+from app.api.auth import get_current_user
+from app.models.base import User, Etkinlik
+from app.schemas.etkinlik import EtkinlikCreate, EtkinlikUpdate, EtkinlikResponse
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[EtkinliklerResponse])
+@router.get("/", response_model=List[EtkinlikResponse])
 async def list_etkinlikler(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
     Etkinlikler listesi
     """
-    # TODO: Implement listing
-    return []
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant ID required")
+        
+    statement = select(Etkinlik).where(Etkinlik.tenant_id == current_user.tenant_id).offset(skip).limit(limit)
+    etkinlikler = session.exec(statement).all()
+    return etkinlikler
 
 
-@router.post("/", response_model=EtkinliklerResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=EtkinlikResponse, status_code=status.HTTP_201_CREATED)
 async def create_etkinlikler(
-    data: EtkinliklerCreate,
-    db: Session = Depends(get_db),
+    data: EtkinlikCreate,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Yeni etkinlikler oluştur
+    Yeni etkinlik oluştur
     """
-    # TODO: Implement creation
-    raise HTTPException(status_code=501, detail="Not implemented")
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant ID required")
+        
+    db_etkinlik = Etkinlik.from_orm(data)
+    db_etkinlik.tenant_id = current_user.tenant_id
+    
+    session.add(db_etkinlik)
+    session.commit()
+    session.refresh(db_etkinlik)
+    return db_etkinlik
 
 
-@router.get("/{item_id}", response_model=EtkinliklerResponse)
+@router.get("/{item_id}", response_model=EtkinlikResponse)
 async def get_etkinlikler(
-    item_id: UUID,
-    db: Session = Depends(get_db),
+    item_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Etkinlikler detayı
+    Etkinlik detayı
     """
-    # TODO: Implement retrieval
-    raise HTTPException(status_code=404, detail="Not found")
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant ID required")
+        
+    etkinlik = session.get(Etkinlik, item_id)
+    if not etkinlik:
+        raise HTTPException(status_code=404, detail="Etkinlik not found")
+        
+    if etkinlik.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    return etkinlik
 
 
-@router.put("/{item_id}", response_model=EtkinliklerResponse)
+@router.put("/{item_id}", response_model=EtkinlikResponse)
 async def update_etkinlikler(
-    item_id: UUID,
-    data: EtkinliklerUpdate,
-    db: Session = Depends(get_db),
+    item_id: str,
+    data: EtkinlikUpdate,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Etkinlikler güncelle
+    Etkinlik güncelle
     """
-    # TODO: Implement update
-    raise HTTPException(status_code=404, detail="Not found")
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant ID required")
+        
+    etkinlik = session.get(Etkinlik, item_id)
+    if not etkinlik:
+        raise HTTPException(status_code=404, detail="Etkinlik not found")
+        
+    if etkinlik.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    etkinlik_data = data.dict(exclude_unset=True)
+    for key, value in etkinlik_data.items():
+        setattr(etkinlik, key, value)
+        
+    session.add(etkinlik)
+    session.commit()
+    session.refresh(etkinlik)
+    return etkinlik
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_etkinlikler(
-    item_id: UUID,
-    db: Session = Depends(get_db),
+    item_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Etkinlikler sil
+    Etkinlik sil
     """
-    # TODO: Implement deletion
-    raise HTTPException(status_code=404, detail="Not found")
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant ID required")
+        
+    etkinlik = session.get(Etkinlik, item_id)
+    if not etkinlik:
+        raise HTTPException(status_code=404, detail="Etkinlik not found")
+        
+    if etkinlik.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    session.delete(etkinlik)
+    session.commit()

@@ -1,0 +1,32 @@
+services:
+  backend:
+    build: ./backend
+    container_name: bader_backend
+    restart: unless-stopped
+    volumes:
+      - bader_data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/database.db
+      - SECRET_KEY=${SECRET_KEY:-changeme_in_production_please_very_secure}
+    ports:
+      - "8000:8000"
+    networks:
+      - bader_net
+
+  frontend:
+    build: ./web
+    container_name: bader_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - bader_net
+
+networks:
+  bader_net:
+    driver: bridge
+
+volumes:
+  bader_data:

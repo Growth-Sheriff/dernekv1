@@ -23,6 +23,12 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@tauri-apps/api/core": [
+        "./src/lib/tauri-shim/core.ts"
+      ],
+      "@tauri-apps/plugin-dialog": [
+        "./src/lib/tauri-shim/dialog.ts"
       ]
     }
   },

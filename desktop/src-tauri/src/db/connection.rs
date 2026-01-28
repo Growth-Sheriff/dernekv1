@@ -81,6 +81,89 @@ pub fn init_database(conn: &mut SqliteConnection) -> QueryResult<()> {
     } else {
         println!("⚠️  schema.sql not found, skipping initial schema");
     }
+
+    // FALLBACK: Ana tabloları manuel oluştur (Dosya okuma başarısız olursa diye - özellikle macOS App Bundle içinde)
+    let core_tables = vec![
+        "CREATE TABLE IF NOT EXISTS tenants (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        "CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY NOT NULL,
+            tenant_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            email TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'USER',
+            phone TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )",
+        "CREATE TABLE IF NOT EXISTS licenses (
+            id TEXT PRIMARY KEY NOT NULL,
+            license_key TEXT NOT NULL UNIQUE,
+            tenant_id TEXT,
+            plan TEXT NOT NULL DEFAULT 'STANDARD',
+            is_active INTEGER NOT NULL DEFAULT 0,
+            starts_at TEXT,
+            expires_at TEXT,
+            max_users INTEGER DEFAULT 5,
+            max_records INTEGER DEFAULT 1000,
+            features TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )",
+        "CREATE TABLE IF NOT EXISTS kasalar (
+             id TEXT PRIMARY KEY NOT NULL,
+             tenant_id TEXT NOT NULL,
+             kasa_adi TEXT NOT NULL,
+             bakiye REAL NOT NULL DEFAULT 0,
+             para_birimi TEXT NOT NULL DEFAULT 'TRY',
+             fiziksel_bakiye REAL DEFAULT 0,
+             serbest_bakiye REAL DEFAULT 0,
+             is_active INTEGER DEFAULT 1,
+             created_at TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )",
+        "CREATE TABLE IF NOT EXISTS gelir_turleri (
+            id TEXT PRIMARY KEY NOT NULL,
+            tenant_id TEXT NOT NULL,
+            ad TEXT NOT NULL,
+            kod TEXT NOT NULL,
+            aciklama TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )",
+        "CREATE TABLE IF NOT EXISTS gider_turleri (
+            id TEXT PRIMARY KEY NOT NULL,
+            tenant_id TEXT NOT NULL,
+            ad TEXT NOT NULL,
+            kod TEXT NOT NULL,
+            aciklama TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        )"
+    ];
+
+    println!("🛠️ Running fallback table creation...");
+    for sql in core_tables {
+        if let Err(e) = diesel::sql_query(sql).execute(conn) {
+             eprintln!("  ⚠ Fallback table creation warning: {:?}", e);
+        }
+    }
     
     Ok(())
 }

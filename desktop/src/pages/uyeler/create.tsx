@@ -11,6 +11,7 @@ import { FormField, FormSection, FormActions } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { uyeSchema, type UyeForm } from '@/schemas';
+import { syncApi } from '@/lib/api';
 
 interface UyeDetail {
   id: string;
@@ -165,11 +166,29 @@ export const UyelerCreatePage: React.FC = () => {
           },
         });
 
+        // Sync to server in background
+        try {
+          await syncApi.syncUye({
+            id: id,
+            tenant_id: tenant.id,
+            ad: data.ad,
+            soyad: data.soyad,
+            tc_no: data.tc_no,
+            uyelik_tipi: data.uyelik_tipi || 'Asil',
+            durum: data.durum,
+            giris_tarihi: data.giris_tarihi,
+            telefon: data.telefon,
+            email: data.email,
+          });
+        } catch (syncError) {
+          console.warn('Server sync failed:', syncError);
+        }
+
         toast.success('Üye başarıyla güncellendi');
         navigate(`/uyeler/${id}`);
       } else {
         // Create new member
-        await invoke('create_uye', {
+        const result = await invoke<{ id: string }>('create_uye', {
           tenantIdParam: tenant.id,
           data: {
             tc_no: data.tc_no,
@@ -201,6 +220,30 @@ export const UyelerCreatePage: React.FC = () => {
             notlar: data.notlar || null,
           },
         });
+
+        // Sync to server in background
+        try {
+          const uyeId = (result as any)?.id || (result as any)?.uye_id;
+          if (uyeId) {
+            await syncApi.syncUye({
+              id: uyeId,
+              tenant_id: tenant.id,
+              ad: data.ad,
+              soyad: data.soyad,
+              tc_no: data.tc_no,
+              uyelik_tipi: data.uyelik_tipi || 'Asil',
+              durum: data.durum,
+              giris_tarihi: data.giris_tarihi,
+              telefon: data.telefon,
+              email: data.email,
+              adres: data.adres,
+              meslek: data.meslek,
+            });
+            console.log('✅ Üye sunucuya senkronize edildi');
+          }
+        } catch (syncError) {
+          console.warn('Server sync failed (will retry later):', syncError);
+        }
 
         toast.success('Üye başarıyla oluşturuldu');
         navigate('/uyeler');

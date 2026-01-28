@@ -28,3 +28,25 @@ pub fn check_initial_setup(state: State<AppState>) -> Result<InitialSetupRespons
 
     Ok(InitialSetupResponse { count: result })
 }
+
+#[tauri::command]
+pub fn reset_application(state: State<AppState>) -> Result<String, String> {
+    let db = state.db.lock().unwrap();
+    let pool = db.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // Sıfırlama işlemi: Tüm tabloları temizle
+    // Basitçe tenants, users ve licenses tablolarını silmek yeterli, çünkü diğerleri referansla bağlı veya önemsiz
+    let tables = vec![
+        "aidat_odemeleri", "aidat_tahakkuklari", "aidat_tanimlari", 
+        "users", "uyeler", "tenants", "licenses", "kasalar", 
+        "gelirler", "giderler", "gelir_turleri", "gider_turleri"
+    ];
+
+    for table in tables {
+        let sql = format!("DELETE FROM {}", table);
+        let _ = diesel::sql_query(sql).execute(&mut conn); // Hata olursa devam et (tablo yoksa vs)
+    }
+
+    Ok("Uygulama başarıyla sıfırlandı".to_string())
+}

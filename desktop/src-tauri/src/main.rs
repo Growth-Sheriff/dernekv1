@@ -14,50 +14,80 @@ fn main() {
     let app_state = AppState::new();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+        //.plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_http::init())
         .manage(app_state)
         .setup(|app| {
-            let app_dir = app.path()
-                .app_data_dir()
-                .expect("Failed to get app data directory");
+            println!("🚀 Setup hook started...");
             
-            std::fs::create_dir_all(&app_dir)
-                .expect("Failed to create app data directory");
-            
-            let db_path = app_dir.join("bader.db");
-            let pool = db::connection::establish_connection(db_path.clone());
-            
-            let mut conn = pool.get().expect("Failed to get database connection");
-            
-            // Initialize database
-            match db::connection::init_database(&mut conn) {
-                Ok(_) => println!("✅ Database initialized successfully"),
+            let setup_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                let app_dir = app.path()
+                    .app_data_dir()
+                    .map_err(|e| format!("Failed to get app dir: {}", e))?;
+                
+                println!("📂 App Data Dir: {:?}", app_dir);
+
+                if !app_dir.exists() {
+                     println!("🛠️ Creating app directory...");
+                     std::fs::create_dir_all(&app_dir)
+                        .map_err(|e| format!("Failed to create app dir: {}", e))?;
+                }
+                
+                let db_path = app_dir.join("bader.db");
+                println!("💾 Database Path: {:?}", db_path);
+
+                if let Some(parent) = db_path.parent() {
+                    if !parent.exists() {
+                        std::fs::create_dir_all(parent)
+                             .map_err(|e| format!("Failed to create db parent dir: {}", e))?;
+                    }
+                }
+
+                println!("🔌 Connecting to database...");
+                // Havuz oluştur
+                let pool = db::connection::establish_connection(db_path.clone());
+                
+                println!("🔗 Getting connection from pool...");
+                // Bağlantı al (timeout riskine karşı loglu)
+                let mut conn = pool.get()
+                    .map_err(|e| format!("Failed to get DB connection: {}", e))?;
+                
+                println!("🏗️ Initializing database...");
+                // init_database
+                if let Err(e) = db::connection::init_database(&mut conn) {
+                    eprintln!("❌ Database init warning: {:?}", e);
+                    // Init hatası olsa bile devam etmeyi deneyebiliriz, belki tablolar vardır.
+                }
+                
+                println!("🔄 Running migrations...");
+                // run_migrations
+                if let Err(e) = db::connection::run_migrations(&mut conn) {
+                     eprintln!("❌ Migration warning: {:?}", e);
+                }
+                
+                println!("✅ Saving state...");
+                let state = app.state::<AppState>();
+                *state.db.lock().unwrap() = Some(pool);
+                *state.db_path.lock().unwrap() = Some(db_path);
+                
+                Ok(())
+            })();
+
+            match setup_result {
+                Ok(_) => {
+                    println!("✅ Setup completed successfully");
+                    Ok(())
+                },
                 Err(e) => {
-                    eprintln!("❌ Failed to initialize database: {:?}", e);
-                    return Err(e.into());
+                    eprintln!("🔥 SETUP FAILED: {}", e);
+                    Err(e.into())
                 }
             }
-            
-            // Run migrations with proper error handling
-            match db::connection::run_migrations(&mut conn) {
-                Ok(_) => println!("✅ Migrations completed successfully"),
-                Err(e) => {
-                    eprintln!("❌ CRITICAL: Migration failed: {:?}", e);
-                    eprintln!("⚠️  Database may be in inconsistent state");
-                    eprintln!("💡 Please check migrations and database schema");
-                    return Err(format!("Migration failed: {}", e).into());
-                }
-            }
-            
-            let state = app.state::<AppState>();
-            *state.db.lock().unwrap() = Some(pool);
-            *state.db_path.lock().unwrap() = Some(db_path);
-            
-            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::database::get_db_path,
             commands::setup::check_initial_setup,
+            commands::setup::reset_application,
             commands::license_validation::validate_license,
             // Login & State Management
             commands::login::login,

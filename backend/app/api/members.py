@@ -40,3 +40,44 @@ def create_member(
     session.commit()
     session.refresh(member)
     return member
+
+from app.models.base import Aidat
+from sqlalchemy import func
+from fastapi import Body
+
+@router.post("/debts")
+def get_member_debts(
+    member_ids: List[str] = Body(..., embed=True, alias="uyeIds"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Üyelerin borç durumlarını hesaplar
+    """
+    if not current_user.tenant_id:
+        return []
+        
+    # Aidatları çek
+    query = select(
+        Aidat.uye_id,
+        func.sum(Aidat.tutar).label("toplam_borc"),
+        func.sum(Aidat.odenen).label("odenen")
+    ).where(
+        Aidat.tenant_id == current_user.tenant_id,
+        Aidat.uye_id.in_(member_ids)
+    ).group_by(Aidat.uye_id)
+    
+    results = session.exec(query).all()
+    
+    debts = []
+    for row in results:
+        # row: (uye_id, toplam_borc, odenen)
+        # SQLModel exec/all returns Row objects like tuples? Yes if group_by/func used.
+        debts.append({
+            "uye_id": row[0],
+            "toplam_borc": row[1] or 0,
+            "odenen": row[2] or 0,
+            "kalan_borc": (row[1] or 0) - (row[2] or 0)
+        })
+        
+    return debts

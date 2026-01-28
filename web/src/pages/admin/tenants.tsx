@@ -18,15 +18,20 @@ import { Label } from "@/components/ui/label";
 import { toast } from 'sonner';
 
 export default function TenantsPage() {
-    const { tenants, createTenant, suspendTenant } = useAdminStore((state: any) => ({
+    const { tenants, createTenant, suspendTenant, fetchTenants } = useAdminStore((state: any) => ({
         tenants: state.tenants,
         createTenant: state.createTenant,
         suspendTenant: state.suspendTenant,
+        fetchTenants: state.fetchTenants,
     }));
 
     const [search, setSearch] = useState('');
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newTenant, setNewTenant] = useState({ name: '', slug: '', contact_email: '', max_users: 100 });
+
+    React.useEffect(() => {
+        fetchTenants();
+    }, [fetchTenants]);
 
     const filteredTenants = tenants.filter((t: any) =>
         t.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -35,11 +40,15 @@ export default function TenantsPage() {
 
     const handleCreate = async () => {
         try {
-            // Mock create action - store'da bu metodun implemente edilmesi gerekebilir
-            // şimdilik sadece loading simülasyonu
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await createTenant({
+                name: newTenant.name,
+                slug: newTenant.slug,
+                contact_email: newTenant.contact_email,
+                max_users: newTenant.max_users
+            });
             toast.success('Yeni dernek oluşturuldu');
             setIsCreateOpen(false);
+            setNewTenant({ name: '', slug: '', contact_email: '', max_users: 100 });
         } catch (error) {
             toast.error('Dernek oluşturulurken hata oluştu');
         }

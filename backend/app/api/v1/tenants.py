@@ -1,81 +1,132 @@
 """
 Tenants API Routes
 """
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
-from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.user import User
-from app.schemas.tenants import TenantsCreate, TenantsUpdate, TenantsResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+
+from app.core.db import get_session
+from app.api.auth import get_current_user
+from app.models.base import User, Tenant, UserRole
+from app.schemas.tenant import TenantCreate, TenantUpdate, TenantResponse
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[TenantsResponse])
+@router.get("/", response_model=List[TenantResponse])
 async def list_tenants(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Tenants listesi
+    Kullanıcının erişebildiği tenant'ları listeler.
+    Super Admin tüm tenantları görür.
+    Diğerleri sadece kendi tenantını görür.
     """
-    # TODO: Implement listing
+    if current_user.role == UserRole.SUPER_ADMIN:
+        statement = select(Tenant).offset(skip).limit(limit)
+        return session.exec(statement).all()
+    
+    if current_user.tenant_id:
+        # Tek bir tenant dönecek ama liste formatında
+        tenant = session.get(Tenant, current_user.tenant_id)
+        if tenant:
+            return [tenant]
+            
     return []
 
 
-@router.post("/", response_model=TenantsResponse, status_code=status.HTTP_201_CREATED)
-async def create_tenants(
-    data: TenantsCreate,
-    db: Session = Depends(get_db),
+@router.post("/", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
+async def create_tenant(
+    data: TenantCreate,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Yeni tenants oluştur
+    Yeni tenant oluştur (Sadece Super Admin).
     """
-    # TODO: Implement creation
-    raise HTTPException(status_code=501, detail="Not implemented")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Yetersiz yetki")
+        
+    # Slug check
+    existing = session.exec(select(Tenant).where(Tenant.slug == data.slug)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Slug zaten kullanımda")
+        
+    new_tenant = Tenant.from_orm(data)
+    session.add(new_tenant)
+    session.commit()
+    session.refresh(new_tenant)
+    return new_tenant
 
 
-@router.get("/{item_id}", response_model=TenantsResponse)
-async def get_tenants(
-    item_id: UUID,
-    db: Session = Depends(get_db),
+@router.get("/{item_id}", response_model=TenantResponse)
+async def get_tenant(
+    item_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Tenants detayı
+    Tenant detayı
     """
-    # TODO: Implement retrieval
-    raise HTTPException(status_code=404, detail="Not found")
+    # Yetki kontrolü
+    if current_user.role != UserRole.SUPER_ADMIN and str(current_user.tenant_id) != item_id:
+        raise HTTPException(status_code=403, detail="Erişim reddedildi")
+
+    tenant = session.get(Tenant, item_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant bulunamadı")
+        
+    return tenant
 
 
-@router.put("/{item_id}", response_model=TenantsResponse)
-async def update_tenants(
-    item_id: UUID,
-    data: TenantsUpdate,
-    db: Session = Depends(get_db),
+@router.put("/{item_id}", response_model=TenantResponse)
+async def update_tenant(
+    item_id: str,
+    data: TenantUpdate,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Tenants güncelle
+    Tenant güncelle
     """
-    # TODO: Implement update
-    raise HTTPException(status_code=404, detail="Not found")
+    # Yetki kontrolü
+    if current_user.role != UserRole.SUPER_ADMIN and str(current_user.tenant_id) != item_id:
+        raise HTTPException(status_code=403, detail="Erişim reddedildi")
+
+    tenant = session.get(Tenant, item_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant bulunamadı")
+        
+    tenant_data = data.dict(exclude_unset=True)
+    for key, value in tenant_data.items():
+        setattr(tenant, key, value)
+        
+    session.add(tenant)
+    session.commit()
+    session.refresh(tenant)
+    return tenant
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_tenants(
-    item_id: UUID,
-    db: Session = Depends(get_db),
+async def delete_tenant(
+    item_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Tenants sil
+    Tenant sil (Sadece Super Admin)
     """
-    # TODO: Implement deletion
-    raise HTTPException(status_code=404, detail="Not found")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Yetersiz yetki")
+
+    tenant = session.get(Tenant, item_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant bulunamadı")
+        
+    session.delete(tenant)
+    session.commit()

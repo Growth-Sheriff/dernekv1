@@ -82,6 +82,7 @@ import KoyVirmanlarPage from './pages/koy/virmanlar';
 import AyarlarGenelPage from './pages/ayarlar/genel';
 import AyarlarKullanicilarPage from './pages/ayarlar/kullanicilar';
 import AyarlarYedeklemePage from './pages/ayarlar/yedekleme';
+import LisansPage from './pages/ayarlar/lisans';
 
 // ============================================================================
 // Guards
@@ -233,6 +234,7 @@ export const routes: RouteObject[] = [
               { path: 'genel', element: <AyarlarGenelPage /> },
               { path: 'kullanicilar', element: <AyarlarKullanicilarPage /> },
               { path: 'yedekleme', element: <AyarlarYedeklemePage /> },
+              { path: 'lisans', element: <LisansPage /> },
             ]
           }
         ]

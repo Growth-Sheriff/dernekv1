@@ -14,7 +14,7 @@ export const LoginPage: React.FC = () => {
   const saveCredentials = useAuthStore((state) => state.saveCredentials);
   const savedCredentials = useAuthStore((state) => state.savedCredentials);
   const setMode = useLicenseStore((state) => state.setMode);
-  
+
   const { register, handleSubmit, formState: { errors, isSubmitting }, setValue } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -53,39 +53,27 @@ export const LoginPage: React.FC = () => {
 
   const onSubmit = async (data: LoginForm) => {
     try {
-      if (data.mode === 'LOCAL') {
-        // LOCAL modda basit email/password kontrolü
-        
-        // Önce tenant var mı kontrol et
-        const setupResult = await invoke<{ count: number }>('check_initial_setup');
-        
-        if (setupResult.count === 0) {
-          alert('❌ Sistemde hiç tenant bulunmuyor. Lütfen önce ilk kurulumu tamamlayın.');
-          navigate('/onboarding/welcome');
-          return;
-        }
-        
-        // Backend'den gerçek tenant ve kullanıcı bilgilerini al
-        const result = await invoke<{
-          user: { id: string; email: string; full_name: string; tenant_id: string };
-          tenant: { id: string; name: string; slug: string };
-          token: string;
-        }>('login_user', {
-          email: data.email,
-          password: data.password,
-        });
-        
-        // Beni Hatırla ayarını kaydet + şifreyi de kaydet
-        setRememberMe(data.rememberMe ?? true);
-        if (data.rememberMe) {
-          saveCredentials(data.email, data.password);
-        }
-        login(result.user, result.tenant, result.token);
-        setMode('LOCAL');
-        navigate('/');
-      } else {
-        throw new Error('ONLINE ve HYBRID modları henüz aktif değil');
+      // Backend'den gerçek tenant ve kullanıcı bilgilerini al
+      // Tüm modlar için aynı login mekanizmasını kullan
+      const commandName = data.mode === 'LOCAL' ? 'login_user' : 'login';
+
+      const result = await invoke<{
+        user: { id: string; email: string; full_name: string; tenant_id: string };
+        tenant: { id: string; name: string; slug: string };
+        token: string;
+      }>(commandName, {
+        email: data.email,
+        password: data.password,
+      });
+
+      // Beni Hatırla ayarını kaydet + şifreyi de kaydet
+      setRememberMe(data.rememberMe ?? true);
+      if (data.rememberMe) {
+        saveCredentials(data.email, data.password);
       }
+      login(result.user, result.tenant, result.token);
+      setMode(data.mode);
+      navigate('/');
     } catch (error) {
       console.error('Login error:', error);
       alert(error instanceof Error ? error.message : 'Giriş başarısız');
@@ -178,8 +166,7 @@ export const LoginPage: React.FC = () => {
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-600">
-            <p>LOCAL mod: Offline çalışma</p>
-            <p className="text-xs text-gray-400 mt-1">ONLINE ve HYBRID yakında aktif olacak</p>
+            <p className="text-xs text-gray-500">LOCAL: Offline | ONLINE: Uzak sunucu | HYBRID: Her ikisi</p>
           </div>
         </div>
       </div>

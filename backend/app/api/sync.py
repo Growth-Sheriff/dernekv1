@@ -1,115 +1,378 @@
-from typing import List, Optional, Any, Dict
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+"""
+Sync API - Desktop'tan gelen verileri sunucuya senkronize eder
+"""
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlmodel import Session, select
+from typing import List, Optional
+from datetime import datetime
+from pydantic import BaseModel
+import uuid
+
 from app.core.db import get_session
-from app.models.base import User, Member, Transaction
-from app.api.auth import get_current_user
+from app.models.base import (
+    Uye, Gelir, Gider, Kasa, GelirTuru, GiderTuru, 
+    AidatTakip, Virman, SyncChange
+)
 
-router = APIRouter()
+router = APIRouter(prefix="/sync", tags=["Sync"])
 
-class SyncPayload(BaseModel):
-    members: List[Dict[str, Any]] = []
-    transactions: List[Dict[str, Any]] = []
-    # Diğer tablolar...
+# ============================================================================
+# REQUEST/RESPONSE MODELS
+# ============================================================================
 
-@router.post("/push")
+class UyeSync(BaseModel):
+    id: str
+    tenant_id: str
+    ad: str
+    soyad: str
+    tc_no: Optional[str] = None
+    email: Optional[str] = None
+    telefon: Optional[str] = None
+    adres: Optional[str] = None
+    uye_no: Optional[str] = None
+    uye_turu: Optional[str] = "Asil"
+    durum: Optional[str] = "Aktif"
+    kayit_tarihi: Optional[str] = None
+    dogum_tarihi: Optional[str] = None
+    cinsiyet: Optional[str] = None
+    meslek: Optional[str] = None
+    is_active: Optional[int] = 1
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class GelirSync(BaseModel):
+    id: str
+    tenant_id: str
+    tutar: float
+    tarih: str
+    aciklama: Optional[str] = None
+    gelir_turu: Optional[str] = None
+    gelir_turu_id: Optional[str] = None
+    kasa_id: Optional[str] = None
+    uye_id: Optional[str] = None
+    aidat_id: Optional[str] = None
+    belge_no: Optional[str] = None
+    is_active: Optional[int] = 1
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class GiderSync(BaseModel):
+    id: str
+    tenant_id: str
+    tutar: float
+    tarih: str
+    aciklama: Optional[str] = None
+    gider_turu: Optional[str] = None
+    gider_turu_id: Optional[str] = None
+    kasa_id: Optional[str] = None
+    belge_no: Optional[str] = None
+    is_active: Optional[int] = 1
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class KasaSync(BaseModel):
+    id: str
+    tenant_id: str
+    ad: str
+    bakiye: Optional[float] = 0.0
+    para_birimi: Optional[str] = "TRY"
+    kasa_tipi: Optional[str] = "Nakit"
+    is_active: Optional[int] = 1
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class AidatSync(BaseModel):
+    id: str
+    tenant_id: str
+    uye_id: str
+    yil: int
+    ay: int
+    tutar: float
+    odendi: Optional[int] = 0
+    odeme_tarihi: Optional[str] = None
+    kasa_id: Optional[str] = None
+    is_active: Optional[int] = 1
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class SyncRequest(BaseModel):
+    tenant_id: str
+    uyeler: Optional[List[UyeSync]] = []
+    gelirler: Optional[List[GelirSync]] = []
+    giderler: Optional[List[GiderSync]] = []
+    kasalar: Optional[List[KasaSync]] = []
+    aidatlar: Optional[List[AidatSync]] = []
+
+class SyncResponse(BaseModel):
+    success: bool
+    synced_counts: dict
+    message: str
+
+# ============================================================================
+# SYNC ENDPOINTS
+# ============================================================================
+
+@router.post("/push", response_model=SyncResponse)
 def push_data(
-    payload: SyncPayload,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    data: SyncRequest,
+    session: Session = Depends(get_session)
 ):
     """
-    Desktop uygulamasından gelen verileri sunucuya yazar (Upsert).
+    Desktop'tan sunucuya veri gönder (push)
     """
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant ID gerekli")
+    now = datetime.utcnow().isoformat()
+    counts = {"uyeler": 0, "gelirler": 0, "giderler": 0, "kasalar": 0, "aidatlar": 0}
     
-    tenant_id = current_user.tenant_id
-    stats = {"members_updated": 0, "transactions_updated": 0}
-    
-    # 1. Members Sync
-    for m_data in payload.members:
-        # ID kontrolü (sync_id veya id)
-        # Eğer desktop'tan geliyorsa 'sync_id' desktop'taki ID olabilir. 
-        # Biz burada basitçe ID eşleşmesine bakalım.
-        
-        # Backend'de ID çakışması olmaması için, Desktop'ın gönderdiği ID'yi kullanabiliriz 
-        # (eğer UUID ise) veya yeni ID üretiriz.
-        
-        # Basit Upsert (ID'ye göre)
-        m_id = m_data.get("id")
-        if not m_id:
-            continue
-            
-        existing = session.get(Member, m_id)
-        if existing:
-            # Update
-            for key, value in m_data.items():
-                if key != "id" and key != "tenant_id": # ID ve Tenant değişmez
+    try:
+        # UYELER
+        for uye_data in data.uyeler or []:
+            existing = session.exec(select(Uye).where(Uye.id == uye_data.id)).first()
+            if existing:
+                # Update
+                for key, value in uye_data.dict(exclude_unset=True).items():
                     setattr(existing, key, value)
-            existing.tenant_id = tenant_id # Güvenlik: Tenant'ı zorla
-            session.add(existing)
-            stats["members_updated"] += 1
-        else:
-            # Insert
-            # Pydantic modeline dönüştürüp validate edelim
-            m_data["tenant_id"] = tenant_id
-            try:
-                # Tarih alanlarını parse etmek gerekebilir ama Pydantic halleder mi?
-                # SQLModel doğrudan dict almaz, model(**dict) gerekir.
-                new_member = Member(**m_data)
-                session.add(new_member)
-                stats["members_updated"] += 1
-            except Exception as e:
-                print(f"Member Sync Error: {e}")
+                existing.updated_at = now
+            else:
+                # Insert
+                uye = Uye(**uye_data.dict())
+                uye.created_at = uye.created_at or now
+                uye.updated_at = now
+                session.add(uye)
+            counts["uyeler"] += 1
+        
+        # KASALAR
+        for kasa_data in data.kasalar or []:
+            existing = session.exec(select(Kasa).where(Kasa.id == kasa_data.id)).first()
+            if existing:
+                for key, value in kasa_data.dict(exclude_unset=True).items():
+                    setattr(existing, key, value)
+                existing.updated_at = now
+            else:
+                kasa = Kasa(**kasa_data.dict())
+                kasa.created_at = kasa.created_at or now
+                kasa.updated_at = now
+                session.add(kasa)
+            counts["kasalar"] += 1
+        
+        # GELIRLER
+        for gelir_data in data.gelirler or []:
+            existing = session.exec(select(Gelir).where(Gelir.id == gelir_data.id)).first()
+            if existing:
+                for key, value in gelir_data.dict(exclude_unset=True).items():
+                    setattr(existing, key, value)
+                existing.updated_at = now
+            else:
+                gelir = Gelir(**gelir_data.dict())
+                gelir.created_at = gelir.created_at or now
+                gelir.updated_at = now
+                session.add(gelir)
+            counts["gelirler"] += 1
+        
+        # GIDERLER
+        for gider_data in data.giderler or []:
+            existing = session.exec(select(Gider).where(Gider.id == gider_data.id)).first()
+            if existing:
+                for key, value in gider_data.dict(exclude_unset=True).items():
+                    setattr(existing, key, value)
+                existing.updated_at = now
+            else:
+                gider = Gider(**gider_data.dict())
+                gider.created_at = gider.created_at or now
+                gider.updated_at = now
+                session.add(gider)
+            counts["giderler"] += 1
+        
+        # AIDATLAR
+        for aidat_data in data.aidatlar or []:
+            existing = session.exec(select(AidatTakip).where(AidatTakip.id == aidat_data.id)).first()
+            if existing:
+                for key, value in aidat_data.dict(exclude_unset=True).items():
+                    setattr(existing, key, value)
+                existing.updated_at = now
+            else:
+                aidat = AidatTakip(**aidat_data.dict())
+                aidat.created_at = aidat.created_at or now
+                aidat.updated_at = now
+                session.add(aidat)
+            counts["aidatlar"] += 1
+        
+        session.commit()
+        
+        return SyncResponse(
+            success=True,
+            synced_counts=counts,
+            message="Veriler başarıyla senkronize edildi"
+        )
+        
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Sync hatası: {str(e)}")
 
-    # 2. Transactions Sync
-    for t_data in payload.transactions:
-        t_id = t_data.get("id")
-        if not t_id:
-            continue
-            
-        existing_t = session.get(Transaction, t_id)
-        if existing_t:
-            for key, value in t_data.items():
-                if key != "id" and key != "tenant_id":
-                    setattr(existing_t, key, value)
-            existing_t.tenant_id = tenant_id
-            session.add(existing_t)
-            stats["transactions_updated"] += 1
-        else:
-            t_data["tenant_id"] = tenant_id
-            try:
-                new_trans = Transaction(**t_data)
-                session.add(new_trans)
-                stats["transactions_updated"] += 1
-            except Exception as e:
-                print(f"Transaction Sync Error: {e}")
 
-    session.commit()
-    return {"status": "success", "stats": stats}
-
-@router.get("/pull")
+@router.get("/pull/{tenant_id}")
 def pull_data(
-    since: Optional[datetime] = None,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    tenant_id: str,
+    since: Optional[str] = None,
+    session: Session = Depends(get_session)
 ):
     """
-    Sunucudaki son değişiklikleri Desktop'a gönderir.
+    Sunucudan desktop'a veri çek (pull)
+    since: ISO format tarih - bu tarihten sonra güncellenen kayıtları getir
     """
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant ID gerekli")
+    result = {
+        "uyeler": [],
+        "gelirler": [],
+        "giderler": [],
+        "kasalar": [],
+        "aidatlar": []
+    }
     
-    tenant_id = current_user.tenant_id
+    # Uyeler
+    query = select(Uye).where(Uye.tenant_id == tenant_id)
+    if since:
+        query = query.where(Uye.updated_at > since)
+    uyeler = session.exec(query).all()
+    result["uyeler"] = [{k: v for k, v in u.__dict__.items() if not k.startswith('_')} for u in uyeler]
     
-    # Basitçe tüm veriyi dönelim şimdilik (since filtresi sonra)
-    members = session.exec(select(Member).where(Member.tenant_id == tenant_id)).all()
-    transactions = session.exec(select(Transaction).where(Transaction.tenant_id == tenant_id)).all()
+    # Kasalar
+    query = select(Kasa).where(Kasa.tenant_id == tenant_id)
+    if since:
+        query = query.where(Kasa.updated_at > since)
+    kasalar = session.exec(query).all()
+    result["kasalar"] = [{k: v for k, v in k.__dict__.items() if not k.startswith('_')} for k in kasalar]
+    
+    # Gelirler
+    query = select(Gelir).where(Gelir.tenant_id == tenant_id)
+    if since:
+        query = query.where(Gelir.updated_at > since)
+    gelirler = session.exec(query).all()
+    result["gelirler"] = [{k: v for k, v in g.__dict__.items() if not k.startswith('_')} for g in gelirler]
+    
+    # Giderler
+    query = select(Gider).where(Gider.tenant_id == tenant_id)
+    if since:
+        query = query.where(Gider.updated_at > since)
+    giderler = session.exec(query).all()
+    result["giderler"] = [{k: v for k, v in g.__dict__.items() if not k.startswith('_')} for g in giderler]
+    
+    # Aidatlar
+    query = select(AidatTakip).where(AidatTakip.tenant_id == tenant_id)
+    if since:
+        query = query.where(AidatTakip.updated_at > since)
+    aidatlar = session.exec(query).all()
+    result["aidatlar"] = [{k: v for k, v in a.__dict__.items() if not k.startswith('_')} for a in aidatlar]
     
     return {
-        "members": members,
-        "transactions": transactions
+        "success": True,
+        "data": result,
+        "synced_at": datetime.utcnow().isoformat()
     }
+
+
+@router.post("/uye")
+def sync_single_uye(
+    uye_data: UyeSync,
+    session: Session = Depends(get_session)
+):
+    """Tek bir üye senkronize et"""
+    now = datetime.utcnow().isoformat()
+    
+    try:
+        existing = session.exec(select(Uye).where(Uye.id == uye_data.id)).first()
+        if existing:
+            for key, value in uye_data.dict(exclude_unset=True).items():
+                setattr(existing, key, value)
+            existing.ad_soyad = f"{existing.ad} {existing.soyad}"
+            existing.updated_at = now
+            session.add(existing)
+        else:
+            data = uye_data.dict()
+            # Auto-generate required fields
+            data['ad_soyad'] = f"{data.get('ad', '')} {data.get('soyad', '')}"
+            data['uye_no'] = data.get('uye_no') or data.get('tc_no', '')[:6] or str(uuid.uuid4())[:8]
+            data['tc_no'] = data.get('tc_no') or '00000000000'
+            data['giris_tarihi'] = data.get('kayit_tarihi') or data.get('giris_tarihi') or now
+            data['uyelik_tipi'] = data.get('uye_turu') or 'Asil'
+            
+            uye = Uye(**data)
+            uye.created_at = uye.created_at or now
+            uye.updated_at = now
+            session.add(uye)
+        
+        session.commit()
+        return {"success": True, "message": "Üye senkronize edildi", "id": uye_data.id}
+    except Exception as e:
+        session.rollback()
+        return {"success": False, "message": f"Sync hatası: {str(e)}", "id": uye_data.id}
+
+
+@router.post("/gelir")
+def sync_single_gelir(
+    gelir_data: GelirSync,
+    session: Session = Depends(get_session)
+):
+    """Tek bir gelir senkronize et"""
+    now = datetime.utcnow().isoformat()
+    
+    existing = session.exec(select(Gelir).where(Gelir.id == gelir_data.id)).first()
+    if existing:
+        for key, value in gelir_data.dict(exclude_unset=True).items():
+            setattr(existing, key, value)
+        existing.updated_at = now
+        session.add(existing)
+    else:
+        gelir = Gelir(**gelir_data.dict())
+        gelir.created_at = gelir.created_at or now
+        gelir.updated_at = now
+        session.add(gelir)
+    
+    session.commit()
+    return {"success": True, "message": "Gelir senkronize edildi", "id": gelir_data.id}
+
+
+@router.post("/gider")
+def sync_single_gider(
+    gider_data: GiderSync,
+    session: Session = Depends(get_session)
+):
+    """Tek bir gider senkronize et"""
+    now = datetime.utcnow().isoformat()
+    
+    existing = session.exec(select(Gider).where(Gider.id == gider_data.id)).first()
+    if existing:
+        for key, value in gider_data.dict(exclude_unset=True).items():
+            setattr(existing, key, value)
+        existing.updated_at = now
+        session.add(existing)
+    else:
+        gider = Gider(**gider_data.dict())
+        gider.created_at = gider.created_at or now
+        gider.updated_at = now
+        session.add(gider)
+    
+    session.commit()
+    return {"success": True, "message": "Gider senkronize edildi", "id": gider_data.id}
+
+
+@router.post("/kasa")
+def sync_single_kasa(
+    kasa_data: KasaSync,
+    session: Session = Depends(get_session)
+):
+    """Tek bir kasa senkronize et"""
+    now = datetime.utcnow().isoformat()
+    
+    existing = session.exec(select(Kasa).where(Kasa.id == kasa_data.id)).first()
+    if existing:
+        for key, value in kasa_data.dict(exclude_unset=True).items():
+            setattr(existing, key, value)
+        existing.updated_at = now
+        session.add(existing)
+    else:
+        kasa = Kasa(**kasa_data.dict())
+        kasa.created_at = kasa.created_at or now
+        kasa.updated_at = now
+        session.add(kasa)
+    
+    session.commit()
+    return {"success": True, "message": "Kasa senkronize edildi", "id": kasa_data.id}

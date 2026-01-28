@@ -1,10 +1,14 @@
+import os
 from sqlmodel import SQLModel, create_engine, Session
 from app.models.base import * # Import models to register them
 
-DATABASE_URL = "sqlite:///./database.db"
-# PRODUCTION: DATABASE_URL = "postgresql://user:password@localhost/bader_db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Handle PostgreSQL specific connection args logic if needed (remove check_same_thread for postgres)
+connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)

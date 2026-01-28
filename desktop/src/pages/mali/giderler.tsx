@@ -455,7 +455,7 @@ export const GiderlerPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tutar *</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₺</span>
-                  <input type heave="number" step="0.01" value={tutar} onChange={(e) => setTutar(e.target.value)} className="w-full h-10 rounded-lg border pl-7 pr-3" required />
+                  <input type="number" step="0.01" value={tutar} onChange={(e) => setTutar(e.target.value)} className="w-full h-10 rounded-lg border pl-7 pr-3" required />
                 </div>
               </div>
               <div>

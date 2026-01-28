@@ -6,9 +6,16 @@ from datetime import datetime
 from typing import Optional
 
 
+
 class AidatBase(BaseModel):
     """Base Aidat schema"""
-    pass
+    uye_id: UUID4
+    yil: int
+    ay: int
+    tutar: float = 0.0
+    odenen: float = 0.0
+    odeme_tarihi: Optional[datetime] = None
+    durum: str = "beklemede"
 
 
 class AidatCreate(AidatBase):
@@ -18,7 +25,13 @@ class AidatCreate(AidatBase):
 
 class AidatUpdate(BaseModel):
     """Update Aidat schema"""
-    pass
+    uye_id: Optional[UUID4] = None
+    yil: Optional[int] = None
+    ay: Optional[int] = None
+    tutar: Optional[float] = None
+    odenen: Optional[float] = None
+    odeme_tarihi: Optional[datetime] = None
+    durum: Optional[str] = None
 
 
 class AidatInDB(AidatBase):
@@ -35,3 +48,4 @@ class AidatInDB(AidatBase):
 class AidatResponse(AidatInDB):
     """Response Aidat schema"""
     pass
+

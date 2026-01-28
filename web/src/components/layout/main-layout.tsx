@@ -1,8 +1,11 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './sidebar';
 import { Header } from './header';
+import { useLicenseCheck } from '@/hooks/useLicenseCheck';
 
 export function MainLayout() {
+    useLicenseCheck();
+
     return (
         <div className="flex h-screen bg-background">
             <Sidebar />
@@ -19,3 +22,4 @@ export function MainLayout() {
         </div>
     );
 }
+

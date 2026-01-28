@@ -10,7 +10,19 @@ use bcrypt::{hash, DEFAULT_COST};
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
+pub struct ServerIds {
+    pub tenant_id: String,
+    pub user_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateTenantRequest {
+    pub data: TenantData,
+    pub server_ids: Option<ServerIds>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TenantData {
     pub name: String,
     pub slug: String,
     pub admin_name: String,
@@ -27,6 +39,8 @@ pub struct CreateTenantResponse {
     pub user_id: String,
     pub message: String,
 }
+
+
 
 #[derive(Debug, Serialize)]
 pub struct TenantInfo {
@@ -59,12 +73,15 @@ pub struct SlugCheckResponse {
 /// Yeni tenant (dernek) oluştur
 #[tauri::command]
 pub fn create_tenant(
-    data: CreateTenantRequest,
+    request: CreateTenantRequest,
     state: State<AppState>,
 ) -> Result<CreateTenantResponse, String> {
     let db = state.db.lock().unwrap();
     let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let data = request.data;
+    let server_ids = request.server_ids;
 
     // 1. EMAIL VALİDASYONU
     if !data.admin_email.contains('@') || !data.admin_email.contains('.') {
@@ -77,7 +94,6 @@ pub fn create_tenant(
     }
 
     // 3. SLUG VALİDASYONU
-    // 3. SLUG VALİDASYONU
     let slug = sanitize_slug(&data.slug);
     if slug.len() < 3 {
         return Err("Slug en az 3 karakter olmalıdır".to_string());
@@ -88,56 +104,76 @@ pub fn create_tenant(
         return Err(format!("'{}' slug'ı zaten kullanılıyor. Farklı bir isim deneyin.", slug));
     }
 
-    // 5
-    // 5. LİSANS KONTROLÜ
+    // 5. LİSANS KONTROLÜ - SADECE LOCAL MOD İÇİN
+    // Eğer server_ids varsa, sunucu zaten lisansı doğruladı, tekrar kontrol etmeye gerek yok
     let license_key = data.license_key.to_uppercase();
     
-    #[derive(QueryableByName)]
-    struct LicenseCheck {
-        #[diesel(sql_type = diesel::sql_types::Integer)]
-        count: i32,
-    }
-    
-    let license_exists = diesel::sql_query(
-        "SELECT COUNT(*) as count FROM licenses WHERE license_key = ?1 AND is_active = 1"
-    )
-    .bind::<diesel::sql_types::Text, _>(&license_key)
-    .get_result::<LicenseCheck>(&mut conn)
-    .map_err(|e| format!("Lisans kontrolü başarısız: {}", e))?;
-    
-    if license_exists.count == 0 {
-        return Err("Geçersiz veya aktif olmayan lisans anahtarı".to_string());
-    }
-
-    // 6
-    // 4. LİSANS ZATEN BAŞKA TENANT'A BAĞLI MI?
-    #[derive(QueryableByName)]
-    struct TenantCheck {
-        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
-        tenant_id: Option<String>,
-    }
-    
-    let license_tenant = diesel::sql_query(
-        "SELECT tenant_id FROM licenses WHERE license_key = ?1"
-    )
-    .bind::<diesel::sql_types::Text, _>(&license_key)
-    .get_result::<TenantCheck>(&mut conn)
-    .ok();
-    
-    if let Some(lt) = license_tenant {
-        if lt.tenant_id.is_some() {
-            return Err("Bu lisans zaten başka bir derneğe bağlı".to_string());
+    if server_ids.is_none() {
+        // LOCAL MOD: Lisansı yerel veritabanında kontrol et
+        #[derive(QueryableByName)]
+        struct LicenseCheck {
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            count: i32,
         }
+        
+        let license_exists = diesel::sql_query(
+            "SELECT COUNT(*) as count FROM licenses WHERE license_key = ?1 AND is_active = 1"
+        )
+        .bind::<diesel::sql_types::Text, _>(&license_key)
+        .get_result::<LicenseCheck>(&mut conn)
+        .map_err(|e| format!("Lisans kontrolü başarısız: {}", e))?;
+        
+        if license_exists.count == 0 {
+            return Err("Geçersiz veya aktif olmayan lisans anahtarı".to_string());
+        }
+
+        // 6. LİSANS ZATEN BAŞKA TENANT'A BAĞLI MI?
+        #[derive(QueryableByName)]
+        struct TenantCheck {
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+            tenant_id: Option<String>,
+        }
+        
+        let license_tenant = diesel::sql_query(
+            "SELECT tenant_id FROM licenses WHERE license_key = ?1"
+        )
+        .bind::<diesel::sql_types::Text, _>(&license_key)
+        .get_result::<TenantCheck>(&mut conn)
+        .ok();
+        
+        if let Some(lt) = license_tenant {
+            if lt.tenant_id.is_some() {
+                return Err("Bu lisans zaten başka bir derneğe bağlı".to_string());
+            }
+        }
+    } else {
+        // HYBRID MOD: Sunucu lisansı zaten doğruladı, local tabloya lisans eklememiz gerek
+        // Lisans tablosunda yoksa ekle
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let _ = diesel::sql_query(
+            "INSERT OR IGNORE INTO licenses (id, tenant_id, license_key, plan, mode, is_active, created_at, updated_at)
+             VALUES (?1, NULL, ?2, 'hybrid', 'hybrid', 1, ?3, ?4)"
+        )
+        .bind::<diesel::sql_types::Text, _>(&Uuid::new_v4().to_string())
+        .bind::<diesel::sql_types::Text, _>(&license_key)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(&mut conn);
     }
 
-    let tenant_id = Uuid::new_v4().to_string();
-    let user_id = Uuid::new_v4().to_string();
+    // ID BELİRLEME: Sunucudan geldiyse onları kullan, yoksa yeni üret
+    let (tenant_id, user_id) = if let Some(ids) = server_ids {
+        (ids.tenant_id, ids.user_id)
+    } else {
+        (Uuid::new_v4().to_string(), Uuid::new_v4().to_string())
+    };
+    
     let kasa_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // TRAN7ACTION BAŞLAT
+    // TRANSACTION BAŞLAT
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // 5. TENANT OLUŞTUR
+        // 7. TENANT OLUŞTUR
         diesel::sql_query(
             "INSERT INTO tenants (id, name, slug, is_active, created_at, updated_at)
              VALUES (?1, ?2, ?3, 1, ?4, ?5)"

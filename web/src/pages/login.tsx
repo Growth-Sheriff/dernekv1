@@ -49,10 +49,14 @@ export default function LoginPage({ hasSetup }: LoginProps) {
           slug: string;
         };
         license?: {
-          plan: string;
-          is_active: boolean;
-          expires_at: string | null;
-        };
+          key: string;
+          type: string;
+          desktop_enabled: boolean;
+          web_enabled: boolean;
+          mobile_enabled: boolean;
+          sync_enabled: boolean;
+          end_date: string;
+        } | null;
         token?: string;
         message: string;
       }>('login', {
@@ -76,7 +80,8 @@ export default function LoginPage({ hasSetup }: LoginProps) {
           tenant_id: result.tenant.id
         };
 
-        login(userWithTenantId, result.tenant, result.token);
+        // Lisans bilgisini de store'a kaydet
+        login(userWithTenantId, result.tenant, result.token, result.license || null);
         toast.success('Giriş başarılı! Hoş geldiniz.');
         navigate('/dashboard');
       } else {

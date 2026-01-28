@@ -14,11 +14,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { License } from '@/types/license';
 
 export default function LicensesPage() {
-    const { licenses, createLicense, tenants } = useAdminStore((state: any) => ({
+    const { licenses, createLicense, tenants, fetchLicenses } = useAdminStore((state: any) => ({
         licenses: state.licenses,
         createLicense: state.createLicense,
         tenants: state.tenants,
+        fetchLicenses: state.fetchLicenses,
     }));
+
+    React.useEffect(() => {
+        fetchLicenses();
+    }, [fetchLicenses]);
 
     const [search, setSearch] = useState('');
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -40,12 +45,12 @@ export default function LicensesPage() {
             const licenseKey = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
             await createLicense({
-                ...newLicense,
                 key: licenseKey,
-                tenant_name: tenant?.name || 'Unknown',
+                license_type: newLicense.type || 'STANDARD',
                 start_date: new Date().toISOString(),
                 end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString(),
-                features: ['AIDAT', 'MUHASEBE']
+                tenant_id: tenant?.id,
+                is_active: true
             });
 
             toast.success('Lisans oluşturuldu');

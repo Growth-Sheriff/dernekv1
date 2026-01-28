@@ -13,7 +13,7 @@ const uuidv4 = () => {
   });
 };
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = 'http://157.90.154.48:8000/api/v1';
 
 // MOCK DATA GENERATORS
 const mockUyeler = Array.from({ length: 25 }).map((_, i) => ({
@@ -57,15 +57,60 @@ const mockStats = {
 
 // Command Mapping: Desktop komutlarını Backend Endpointlerine çevirir
 const COMMAND_MAP: Record<string, { method: string, url: string }> = {
-  'login': { method: 'POST', url: '/auth/token' }, // Özel işlem gerekiyor (Form Data)
+  'login': { method: 'POST', url: '/auth/token' },
+  'get_dashboard_stats': { method: 'GET', url: '/dashboard/stats' },
   'get_uyeler': { method: 'GET', url: '/members' },
-  // Diğerleri için şimdilik map yok, mock dönecek
+  'get_uye_borc_durumlari': { method: 'POST', url: '/members/debts' },
+  'get_gelirler': { method: 'GET', url: '/gelirler' },
+  'create_gelir': { method: 'POST', url: '/gelirler' },
+  'delete_gelir': { method: 'DELETE', url: '/gelirler/:id' },
+  'get_giderler': { method: 'GET', url: '/giderler' },
+  'create_gider': { method: 'POST', url: '/giderler' },
+  'delete_gider': { method: 'DELETE', url: '/giderler/:id' },
+
+  // Etkinlikler
+  'get_etkinlikler': { method: 'GET', url: '/etkinlikler' },
+  'create_etkinlik': { method: 'POST', url: '/etkinlikler' },
+  'update_etkinlik': { method: 'PUT', url: '/etkinlikler/:etkinlikId' },
+  'delete_etkinlik': { method: 'DELETE', url: '/etkinlikler/:etkinlikId' },
+
+  // Aidat
+  'get_aidat_takip': { method: 'GET', url: '/aidat' },
+  'create_aidat': { method: 'POST', url: '/aidat' }, // Frontend'de henüz yoksa da ekleyelim
+  'update_aidat_odeme': { method: 'PUT', url: '/aidat/:odemeId' },
+  'delete_aidat_odeme': { method: 'DELETE', url: '/aidat/:odemeId' },
+
+  // Backup / Sync / License
+  'sync_push': { method: 'POST', url: '/sync/push' },
+  'sync_pull': { method: 'POST', url: '/sync/pull' },
+  'check_license': { method: 'GET', url: '/licenses/my-license' },
+  'upgrade_license': { method: 'POST', url: '/licenses/upgrade' },
+
+  // Super Admin
+  'get_tenants_list': { method: 'GET', url: '/tenants/' },
+  'create_tenant': { method: 'POST', url: '/tenants/' },
+  'update_tenant': { method: 'PUT', url: '/tenants/:tenantId' },
+  'delete_tenant': { method: 'DELETE', url: '/tenants/:tenantId' },
+  'get_all_licenses': { method: 'GET', url: '/licenses/all' },
+  'create_license': { method: 'POST', url: '/licenses/' },
+  'assign_license': { method: 'POST', url: '/licenses/assign' },
+
+  // Kasalar
+  'get_kasalar': { method: 'GET', url: '/kasalar' },
+  'get_kasa_ozet': { method: 'GET', url: '/kasalar/ozet' },
+  'create_kasa': { method: 'POST', url: '/kasalar' },
+  'update_kasa': { method: 'PUT', url: '/kasalar/:id' },
+  'delete_kasa': { method: 'DELETE', url: '/kasalar/:id' },
+
+  // Aidat Ekstra
+  'get_aidat_ozet': { method: 'GET', url: '/aidat/ozet' },
 };
 
 // Token helper
 const getToken = () => {
   try {
     const store = localStorage.getItem('auth-storage');
+    // ... code truncated for brevity, same as before ...
     if (store) {
       const parsed = JSON.parse(store);
       return parsed.state?.token;
@@ -83,7 +128,17 @@ export async function invoke<T>(command: string, args?: any): Promise<T> {
   if (COMMAND_MAP[command]) {
     try {
       const endpoint = COMMAND_MAP[command];
-      const url = `${API_BASE_URL}${endpoint.url}`;
+      let url = `${API_BASE_URL}${endpoint.url}`;
+
+      // URL Parametrelerini Değiştir (Örn: :etkinlikId -> args.etkinlikId)
+      if (args) {
+        Object.keys(args).forEach(key => {
+          if (url.includes(`:${key}`)) {
+            url = url.replace(`:${key}`, args[key]);
+          }
+        });
+      }
+
       const token = getToken();
 
       let options: RequestInit = {
@@ -98,21 +153,41 @@ export async function invoke<T>(command: string, args?: any): Promise<T> {
       // LOGIN ÖZEL DURUM: Form Data gönderilmeli
       if (command === 'login') {
         const formData = new FormData();
-        formData.append('username', args.email); // Backend username bekliyor
+        formData.append('username', args.email);
         formData.append('password', args.password);
         options.body = formData;
+        // Platform bilgisini gönder - Web'den giriş yapılıyor
+        (options.headers as any)['X-Platform'] = 'web';
       } else {
         (options.headers as any)['Content-Type'] = 'application/json';
         if (args) {
-          // GET isteklerinde query params
           if (endpoint.method === 'GET') {
-            // Basit query params dönüşümü (args objesini url'e ekle)
-            // Şimdilik pas geçiyorum, backend zaten her şeyi döndürüyor
+            // GET: Query Params
+            const queryParams = new URLSearchParams();
+            Object.keys(args).forEach(key => {
+              if (args[key] !== null && args[key] !== undefined && !url.includes(args[key])) { // URL param değilse query'e ekle
+                queryParams.append(key, String(args[key]));
+              }
+            });
+            if (queryParams.toString()) {
+              url += `?${queryParams.toString()}`;
+            }
           } else {
-            options.body = JSON.stringify(args);
+            // POST/PUT: Body
+            // Eğer args içinde 'data' varsa onu gönder (Tauri pattern'i)
+            if (args.data) {
+              options.body = JSON.stringify(args.data);
+            } else {
+              // Filtrele: URL parametreleri body'de gitmesin (optional, temizlik için)
+              const bodyArgs = { ...args };
+              // URL'deki parametreleri body'den temizlemek karmaşık olabilir, şimdilik olduğu gibi bırakalım
+              // Pydantic extra='ignore' yapmazsa hata verebilir, ama genellikle payload body'de 'data' wrapper içinde geliyor
+              options.body = JSON.stringify(bodyArgs);
+            }
           }
         }
       }
+
 
       const response = await fetch(url, options);
 
@@ -121,16 +196,24 @@ export async function invoke<T>(command: string, args?: any): Promise<T> {
         // LOGIN RESPONSE ADAPTASYONU (Backend yapısı -> Frontend'in beklediği yapı)
         if (command === 'login') {
           return {
+            success: true,
             user: data.user,
             token: data.access_token,
-            tenant: data.tenant
+            tenant: data.tenant,
+            license: data.license, // Lisans bilgisini ekle
+            message: 'Giriş başarılı'
           } as any;
         }
         return data;
       } else {
         // 401 Unauthorized ise login hatasıdır
         if (response.status === 401 && command === 'login') {
-          throw new Error('Giriş başarısız');
+          throw new Error('Hatalı e-posta veya şifre');
+        }
+        // 403 Forbidden ise lisans hatasıdır
+        if (response.status === 403 && command === 'login') {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'Bu platformda erişim yetkiniz yok. Lisansınızı yükseltin.');
         }
         if (response.status === 401) {
           console.warn('Token geçersiz, logout yapılmalı?');

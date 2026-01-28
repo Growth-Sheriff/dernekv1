@@ -27,3 +27,25 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+from app.api import auth, licenses, sync
+from app.api.v1 import dashboard
+
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(licenses.router, prefix="/api/v1/licenses", tags=["licenses"])
+app.include_router(sync.router, prefix="/api/v1", tags=["sync"])
+
+# Business Logic Routers
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+
+# TODO: Fix these routers - they use old import structure
+# from app.api.v1 import uyeler, gelirler, giderler, etkinlikler, aidat, kasalar, tenants
+# app.include_router(uyeler.router, prefix="/api/v1/members", tags=["members"])
+# app.include_router(gelirler.router, prefix="/api/v1/gelirler", tags=["gelirler"])
+# app.include_router(giderler.router, prefix="/api/v1/giderler", tags=["giderler"])
+# app.include_router(etkinlikler.router, prefix="/api/v1/etkinlikler", tags=["etkinlikler"])
+# app.include_router(aidat.router, prefix="/api/v1/aidat", tags=["aidat"])
+# app.include_router(kasalar.router, prefix="/api/v1/kasalar", tags=["kasalar"])
+# app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["tenants"])
+
+
