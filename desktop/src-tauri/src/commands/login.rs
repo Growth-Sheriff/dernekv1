@@ -43,9 +43,16 @@ pub struct TenantInfo {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct LicenseBasicInfo {
+    pub key: String,
+    #[serde(rename = "type")]
+    pub license_type: String,
     pub plan: String,
+    pub desktop_enabled: bool,
+    pub web_enabled: bool,
+    pub mobile_enabled: bool,
+    pub sync_enabled: bool,
     pub is_active: bool,
-    pub expires_at: Option<String>,
+    pub end_date: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,11 +181,25 @@ pub fn login(
     #[derive(QueryableByName)]
     struct LicenseRow {
         #[diesel(sql_type = diesel::sql_types::Text)]
+        id: String,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        license_key: Option<String>,
+        #[diesel(sql_type = diesel::sql_types::Text)]
         plan: String,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        mode: Option<String>,
         #[diesel(sql_type = diesel::sql_types::Integer)]
         is_active: i32,
         #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
         expiry_date: Option<String>,
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        desktop_enabled: i32,
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        web_enabled: i32,
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        mobile_enabled: i32,
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        sync_enabled: i32,
         #[diesel(sql_type = diesel::sql_types::Integer)]
         max_users: i32,
         #[diesel(sql_type = diesel::sql_types::Integer)]
@@ -188,7 +209,9 @@ pub fn login(
     }
 
     let license_opt = diesel::sql_query(
-        "SELECT plan, is_active, expiry_date, max_users, max_records, features 
+        "SELECT id, license_key, plan, mode, is_active, expiry_date, 
+                desktop_enabled, web_enabled, mobile_enabled, sync_enabled,
+                max_users, max_records, features 
          FROM licenses 
          WHERE tenant_id = ?1 AND is_active = 1"
     )
@@ -261,9 +284,15 @@ pub fn login(
             slug: tenant.slug,
         }),
         license: license_opt.map(|l| LicenseBasicInfo {
+            key: l.license_key.unwrap_or_default(),
+            license_type: l.mode.unwrap_or_else(|| "LOCAL".to_string()).to_uppercase(),
             plan: l.plan,
+            desktop_enabled: l.desktop_enabled == 1,
+            web_enabled: l.web_enabled == 1,
+            mobile_enabled: l.mobile_enabled == 1,
+            sync_enabled: l.sync_enabled == 1,
             is_active: l.is_active == 1,
-            expires_at: l.expiry_date,
+            end_date: l.expiry_date,
         }),
         token: Some(token),
         message: "Giriş başarılı".to_string(),
@@ -308,9 +337,15 @@ pub fn check_session(state: State<AppState>) -> Result<LoginResponse, String> {
                 slug: t.slug,
             }),
             license: license.map(|l| LicenseBasicInfo {
+                key: String::new(), // Not stored in state
+                license_type: l.mode.clone(),
                 plan: l.plan,
+                desktop_enabled: true, // Assume true for local session
+                web_enabled: false,
+                mobile_enabled: false,
+                sync_enabled: l.mode.to_uppercase() != "LOCAL",
                 is_active: l.is_active,
-                expires_at: l.expires_at,
+                end_date: l.expires_at,
             }),
             token: None,
             message: "Session aktif".to_string(),

@@ -49,9 +49,15 @@ export default function LoginPage({ hasSetup }: LoginProps) {
           slug: string;
         };
         license?: {
+          key: string;
+          type: string;
           plan: string;
+          desktop_enabled: boolean;
+          web_enabled: boolean;
+          mobile_enabled: boolean;
+          sync_enabled: boolean;
           is_active: boolean;
-          expires_at: string | null;
+          end_date: string | null;
         };
         token?: string;
         message: string;
@@ -76,7 +82,18 @@ export default function LoginPage({ hasSetup }: LoginProps) {
           tenant_id: result.tenant.id
         };
 
-        login(userWithTenantId, result.tenant, result.token);
+        // Transform license for auth store
+        const licenseForStore = result.license ? {
+          key: result.license.key || '',
+          type: result.license.type || result.license.plan || 'LOCAL',
+          desktop_enabled: result.license.desktop_enabled ?? true,
+          web_enabled: result.license.web_enabled ?? false,
+          mobile_enabled: result.license.mobile_enabled ?? false,
+          sync_enabled: result.license.sync_enabled ?? false,
+          end_date: result.license.end_date || ''
+        } : null;
+
+        login(userWithTenantId, result.tenant, result.token, licenseForStore);
         toast.success('Giriş başarılı! Hoş geldiniz.');
         navigate('/dashboard');
       } else {
