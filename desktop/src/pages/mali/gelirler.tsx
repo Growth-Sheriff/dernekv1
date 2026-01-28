@@ -276,10 +276,26 @@ export const GelirlerPage: React.FC = () => {
     const tutarNum = parseFloat(tutar);
     if (isNaN(tutarNum) || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
     try {
-      await invoke('create_gelir', {
+      // 1. Local DB'ye kaydet
+      const result = await invoke<{ id: string }>('create_gelir', {
         tenantIdParam: tenant.id,
         data: { kasa_id: kasaId, gelir_turu_id: gelirTuruId || null, tarih, tutar: tutarNum, aciklama: aciklama || null, makbuz_no: dekontNo || null, uye_id: selectedUyeId || null },
       });
+
+      // 2. Sync kuyruğuna ekle (HYBRID modda sunucuya da gönderilir)
+      const { syncService } = await import('@/services/syncService');
+      await syncService.queueChange(tenant.id, 'gelirler', 'create', {
+        id: result.id,
+        tenant_id: tenant.id,
+        kasa_id: kasaId,
+        gelir_turu_id: gelirTuruId || null,
+        tarih,
+        tutar: tutarNum,
+        aciklama: aciklama || null,
+        makbuz_no: dekontNo || null,
+        uye_id: selectedUyeId || null
+      });
+
       toast.success('Gelir eklendi!');
       setShowForm(false);
       setTutar(''); setAciklama(''); setDekontNo(''); setSelectedUyeId('');
@@ -290,7 +306,16 @@ export const GelirlerPage: React.FC = () => {
   const handleDelete = async () => {
     if (!tenant || !deletingGelir) return;
     try {
+      // 1. Local DB'den sil
       await invoke('delete_gelir', { tenantIdParam: tenant.id, recordId: deletingGelir.id });
+
+      // 2. Sync kuyruğuna ekle
+      const { syncService } = await import('@/services/syncService');
+      await syncService.queueChange(tenant.id, 'gelirler', 'delete', {
+        id: deletingGelir.id,
+        tenant_id: tenant.id
+      });
+
       toast.success('Gelir silindi');
       refetch();
     } catch (error) { toast.error('Silinemedi: ' + error); }

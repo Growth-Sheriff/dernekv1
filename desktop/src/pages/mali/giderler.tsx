@@ -265,6 +265,7 @@ export const GiderlerPage: React.FC = () => {
     const tutarNum = parseFloat(tutar);
     if (isNaN(tutarNum) || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
     try {
+      // 1. Local DB'ye kaydet
       const giderId = await invoke<string>('create_gider', {
         tenantIdParam: tenant.id,
         data: {
@@ -273,6 +274,20 @@ export const GiderlerPage: React.FC = () => {
           fatura_no: faturaNo || null, alt_kategori: demirbasEkle ? 'DEMIRBAS' : null,
         },
       });
+
+      // 2. Sync kuyruğuna ekle
+      const { syncService } = await import('@/services/syncService');
+      await syncService.queueChange(tenant.id, 'giderler', 'create', {
+        id: giderId,
+        tenant_id: tenant.id,
+        kasa_id: kasaId,
+        gider_turu_id: giderTuruId || null,
+        tarih,
+        tutar: tutarNum,
+        aciklama: demirbasEkle ? `Demirbaş: ${demirbasAdi}` : (aciklama || null),
+        fatura_no: faturaNo || null
+      });
+
       if (demirbasEkle && demirbasAdi) {
         await invoke('create_demirbas', {
           tenantIdParam: tenant.id,
@@ -289,7 +304,16 @@ export const GiderlerPage: React.FC = () => {
   const handleDelete = async () => {
     if (!tenant || !deletingGider) return;
     try {
+      // 1. Local DB'den sil
       await invoke('delete_gider', { tenantIdParam: tenant.id, recordId: deletingGider.id });
+
+      // 2. Sync kuyruğuna ekle
+      const { syncService } = await import('@/services/syncService');
+      await syncService.queueChange(tenant.id, 'giderler', 'delete', {
+        id: deletingGider.id,
+        tenant_id: tenant.id
+      });
+
       toast.success('Gider silindi');
       loadGiderler();
     } catch (error) { toast.error('Silinemedi: ' + error); }

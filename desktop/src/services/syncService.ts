@@ -134,41 +134,71 @@ class SyncService {
      * Backend endpoint'ini belirle
      */
     private getEndpoint(table: SyncTableName, action: SyncAction, id: string): string {
+        // Sunucu sync endpoint'leri - hepsi POST ile çalışır
         const endpoints: Record<SyncTableName, string> = {
-            'uyeler': '/v1/members',
-            'gelirler': '/v1/gelirler',
-            'giderler': '/v1/giderler',
-            'kasalar': '/v1/kasalar',
-            'aidatlar': '/v1/aidatlar',
-            'etkinlikler': '/v1/etkinlikler',
-            'gelir_turleri': '/v1/gelir-turleri',
-            'gider_turleri': '/v1/gider-turleri'
+            'uyeler': '/v1/sync/uye',
+            'gelirler': '/v1/sync/gelir',
+            'giderler': '/v1/sync/gider',
+            'kasalar': '/v1/sync/kasa',
+            'aidatlar': '/v1/sync/aidat',
+            'etkinlikler': '/v1/sync/etkinlik',
+            'gelir_turleri': '/v1/sync/gelir-turu',
+            'gider_turleri': '/v1/sync/gider-turu'
         };
 
-        const base = endpoints[table];
-        if (action === 'create') return base;
-        return `${base}/${id}`;
+        // Sync endpoint'ler hep aynı, action body içinde gönderiliyor
+        return endpoints[table];
     }
 
     /**
-     * HTTP metodunu belirle
+     * HTTP metodunu belirle - sync endpoint'ler hep POST kullanır
      */
     private getMethod(action: SyncAction): string {
-        switch (action) {
-            case 'create': return 'POST';
-            case 'update': return 'PUT';
-            case 'delete': return 'DELETE';
-        }
+        // Sync API hep POST kullanır, action body içinde
+        return 'POST';
     }
 
     /**
      * Veriyi backend formatına dönüştür
      */
     private transformData(table: SyncTableName, data: SyncableRecord): any {
-        // Tablo bazında dönüşüm gerekirse burada yap
-        // Şimdilik direkt gönder
-        const { id, tenant_id, ...rest } = data;
-        return rest;
+        // Backend sync API tam veri bekliyor (id ve tenant_id dahil)
+        const now = new Date().toISOString();
+
+        // Temel alanları ekle (any olarak cast et)
+        const baseData: any = {
+            ...data,
+            created_at: data.created_at || now,
+            updated_at: now
+        };
+
+        // Tablo bazında dönüşüm
+        switch (table) {
+            case 'uyeler':
+                return {
+                    ...baseData,
+                    ad_soyad: baseData.ad_soyad || `${baseData.ad || ''} ${baseData.soyad || ''}`.trim(),
+                    uye_no: baseData.uye_no || '0',
+                    tc_no: baseData.tc_no || '',
+                    giris_tarihi: baseData.giris_tarihi || now.split('T')[0]
+                };
+            case 'gelirler':
+                return {
+                    ...baseData,
+                    kasa_id: baseData.kasa_id || '',
+                    tarih: baseData.tarih || now.split('T')[0],
+                    tutar: baseData.tutar || 0
+                };
+            case 'giderler':
+                return {
+                    ...baseData,
+                    kasa_id: baseData.kasa_id || '',
+                    tarih: baseData.tarih || now.split('T')[0],
+                    tutar: baseData.tutar || 0
+                };
+            default:
+                return baseData;
+        }
     }
 
     /**

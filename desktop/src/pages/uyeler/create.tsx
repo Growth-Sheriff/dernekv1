@@ -11,7 +11,6 @@ import { FormField, FormSection, FormActions } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { uyeSchema, type UyeForm } from '@/schemas';
-import { syncApi } from '@/lib/api';
 
 interface UyeDetail {
   id: string;
@@ -166,9 +165,10 @@ export const UyelerCreatePage: React.FC = () => {
           },
         });
 
-        // Sync to server in background
+        // Sync to server in background (HYBRID mode)
         try {
-          await syncApi.syncUye({
+          const { syncService } = await import('@/services/syncService');
+          await syncService.queueChange(tenant.id, 'uyeler', 'update', {
             id: id,
             tenant_id: tenant.id,
             ad: data.ad,
@@ -221,11 +221,12 @@ export const UyelerCreatePage: React.FC = () => {
           },
         });
 
-        // Sync to server in background
+        // Sync to server in background (HYBRID mode)
         try {
           const uyeId = (result as any)?.id || (result as any)?.uye_id;
           if (uyeId) {
-            await syncApi.syncUye({
+            const { syncService } = await import('@/services/syncService');
+            await syncService.queueChange(tenant.id, 'uyeler', 'create', {
               id: uyeId,
               tenant_id: tenant.id,
               ad: data.ad,
@@ -239,7 +240,7 @@ export const UyelerCreatePage: React.FC = () => {
               adres: data.adres,
               meslek: data.meslek,
             });
-            console.log('✅ Üye sunucuya senkronize edildi');
+            console.log('✅ Üye sync kuyruğuna eklendi');
           }
         } catch (syncError) {
           console.warn('Server sync failed (will retry later):', syncError);
