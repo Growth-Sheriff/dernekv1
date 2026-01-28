@@ -2,7 +2,8 @@ import os
 from sqlmodel import SQLModel, create_engine, Session
 from app.models.base import * # Import models to register them
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+# Database path - absolute path for container
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/database.db")
 
 # Handle PostgreSQL specific connection args logic if needed (remove check_same_thread for postgres)
 connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
