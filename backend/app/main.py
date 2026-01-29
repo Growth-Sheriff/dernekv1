@@ -4,11 +4,60 @@ Multi-Tenant SaaS Application
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+import uuid
+from datetime import datetime
+
+# Import db module 
+from app.core.db import create_db_and_tables, get_session
+from app.models.base import User
+from sqlmodel import Session, select
+
+def create_super_admin():
+    """Create super admin user if not exists"""
+    from app.core.db import engine
+    from passlib.context import CryptContext
+    
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    
+    with Session(engine) as session:
+        existing = session.exec(select(User).where(User.email == "admin@baderyazilim.com")).first()
+        if not existing:
+            admin = User(
+                id=str(uuid.uuid4()),
+                email="admin@baderyazilim.com",
+                full_name="Süper Admin",
+                role="SUPER_ADMIN",
+                hashed_password=pwd_context.hash("123456"),
+                password_hash=pwd_context.hash("123456"),
+                is_active=True,
+                is_superuser=True,
+                tenant_id=None,
+                created_at=datetime.utcnow().isoformat(),
+                updated_at=datetime.utcnow().isoformat()
+            )
+            session.add(admin)
+            session.commit()
+            print("✅ Super Admin created: admin@baderyazilim.com / 123456")
+        else:
+            print("✅ Super Admin already exists")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("🚀 Starting BADER API v3.0...")
+    create_db_and_tables()
+    print("✅ Database tables created")
+    create_super_admin()
+    yield
+    # Shutdown
+    print("👋 Shutting down BADER API")
 
 app = FastAPI(
     title="BADER API",
     description="Dernek Yönetim Sistemi - Multi-Tenant SaaS",
-    version="3.0.0"
+    version="3.0.0",
+    lifespan=lifespan
 )
 
 # CORS
@@ -39,8 +88,3 @@ app.include_router(sync.router, prefix="/api/v1", tags=["sync"])
 
 # Working v1 API routes
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
-
-# NOTE: Other v1 modules (uyeler, gelirler, giderler, aidat, kasalar, etc.) have import issues
-# They use old models that don't exist in app.models.base
-# For now, sync is handled through the /api/v1/sync endpoints
-
