@@ -73,11 +73,14 @@ export default function SuperAdminDashboard() {
                 setTenants(Array.isArray(tenantsData) ? tenantsData : []);
             }
 
-            // Load licenses
-            const licensesRes = await fetch(`${API_URL}/api/v1/licenses`, { headers });
+            // Load licenses - use /all endpoint
+            const licensesRes = await fetch(`${API_URL}/api/v1/licenses/all`, { headers });
             if (licensesRes.ok) {
                 const licensesData = await licensesRes.json();
-                setLicenses(Array.isArray(licensesData) ? licensesData : []);
+                setLicenses(Array.isArray(licensesData) ? licensesData.map((l: any) => ({
+                    ...l,
+                    license_type: l.type || 'HYBRID'
+                })) : []);
             }
         } catch (error) {
             console.error('Failed to load data:', error);
@@ -144,24 +147,48 @@ export default function SuperAdminDashboard() {
 
     const createLicense = async (data: any) => {
         try {
-            const res = await fetch(`${API_URL}/api/v1/licenses`, {
+            // Use /generate endpoint with preset
+            const res = await fetch(`${API_URL}/api/v1/licenses/generate`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    ...data,
-                    key: data.key || generateLicenseKey()
+                    tenant_id: data.tenant_id,
+                    preset: data.license_type, // LOCAL, ONLINE, HYBRID
+                    desktop_enabled: data.desktop_enabled,
+                    web_enabled: data.web_enabled,
+                    mobile_enabled: data.mobile_enabled,
+                    sync_enabled: data.sync_enabled,
+                    expiry_months: 12
                 })
             });
             if (!res.ok) {
                 const err = await res.json();
                 throw new Error(err.detail || 'Lisans oluşturulamadı');
             }
-            toast.success('Lisans oluşturuldu!');
+            const result = await res.json();
+            toast.success(`Lisans oluşturuldu: ${result.code}`);
             setShowLicenseModal(false);
             loadData();
+
+            // Eğer tenant seçildiyse, lisansı tenant'a ata
+            if (data.tenant_id && result.code) {
+                await fetch(`${API_URL}/api/v1/licenses/assign`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        license_key: result.code,
+                        tenant_id: data.tenant_id
+                    })
+                });
+                toast.success('Lisans derneğe atandı!');
+                loadData();
+            }
         } catch (error: any) {
             toast.error(error.message);
         }
@@ -363,8 +390,8 @@ export default function SuperAdminDashboard() {
                                         type="button"
                                         onClick={() => setForm({ ...form, license_type: type })}
                                         className={`py-3 rounded-xl font-medium transition-all ${form.license_type === type
-                                                ? 'bg-purple-600 text-white'
-                                                : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                                            ? 'bg-purple-600 text-white'
+                                            : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
                                             }`}
                                     >
                                         {type}
@@ -430,8 +457,8 @@ export default function SuperAdminDashboard() {
                                         type="button"
                                         onClick={() => setForm({ ...form, [key]: !(form as any)[key] })}
                                         className={`flex items-center gap-2 py-3 px-4 rounded-xl transition-all ${(form as any)[key]
-                                                ? 'bg-green-600/20 border border-green-500 text-green-400'
-                                                : 'bg-slate-700 border border-slate-600 text-slate-400'
+                                            ? 'bg-green-600/20 border border-green-500 text-green-400'
+                                            : 'bg-slate-700 border border-slate-600 text-slate-400'
                                             }`}
                                     >
                                         <Icon className="w-5 h-5" />
@@ -487,8 +514,8 @@ export default function SuperAdminDashboard() {
                             key={item.id}
                             onClick={() => setActiveTab(item.id as any)}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === item.id
-                                    ? 'bg-purple-600 text-white'
-                                    : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+                                ? 'bg-purple-600 text-white'
+                                : 'text-slate-400 hover:bg-slate-700 hover:text-white'
                                 }`}
                         >
                             <item.icon className="w-5 h-5" />
@@ -731,8 +758,8 @@ export default function SuperAdminDashboard() {
                                                     <td className="py-4 px-6 text-slate-300">{tenant?.name || '-'}</td>
                                                     <td className="py-4 px-6">
                                                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${license.license_type === 'HYBRID' ? 'bg-purple-500/20 text-purple-400' :
-                                                                license.license_type === 'ONLINE' ? 'bg-blue-500/20 text-blue-400' :
-                                                                    'bg-gray-500/20 text-gray-400'
+                                                            license.license_type === 'ONLINE' ? 'bg-blue-500/20 text-blue-400' :
+                                                                'bg-gray-500/20 text-gray-400'
                                                             }`}>
                                                             {license.license_type}
                                                         </span>
@@ -749,8 +776,8 @@ export default function SuperAdminDashboard() {
                                                         <button
                                                             onClick={() => toggleLicenseActive(license)}
                                                             className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${license.is_active
-                                                                    ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                                                                    : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                                                ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                                                                : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                                                                 }`}
                                                         >
                                                             {license.is_active ? 'Aktif' : 'Pasif'}
