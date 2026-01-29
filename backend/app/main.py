@@ -23,13 +23,17 @@ def create_super_admin():
     with Session(engine) as session:
         existing = session.exec(select(User).where(User.email == "admin@baderyazilim.com")).first()
         if not existing:
+            # Hash the password
+            password = "123456"
+            hashed = pwd_context.hash(password)
+            
             admin = User(
                 id=str(uuid.uuid4()),
                 email="admin@baderyazilim.com",
-                full_name="Süper Admin",
+                full_name="Super Admin",
                 role="SUPER_ADMIN",
-                hashed_password=pwd_context.hash("123456"),
-                password_hash=pwd_context.hash("123456"),
+                hashed_password=hashed,
+                password_hash=hashed,
                 is_active=True,
                 is_superuser=True,
                 tenant_id=None,
@@ -38,9 +42,9 @@ def create_super_admin():
             )
             session.add(admin)
             session.commit()
-            print("✅ Super Admin created: admin@baderyazilim.com / 123456")
+            print("Super Admin created: admin@baderyazilim.com / 123456")
         else:
-            print("✅ Super Admin already exists")
+            print("Super Admin already exists")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
