@@ -7,6 +7,10 @@ import AdminDashboard from './pages/admin/dashboard';
 import TenantsPage from './pages/admin/tenants';
 import LicensesPage from './pages/admin/licenses';
 
+// Super Admin
+import SuperAdminLoginPage from './pages/super-admin/login';
+import SuperAdminDashboard from './pages/super-admin/dashboard';
+
 // Auth
 import LoginPage from './pages/auth/login';
 
@@ -97,6 +101,15 @@ export const routes: RouteObject[] = [
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  // Super Admin Routes (separate from customer login)
+  {
+    path: '/super-admin/login',
+    element: <SuperAdminLoginPage />,
+  },
+  {
+    path: '/super-admin/dashboard',
+    element: <SuperAdminDashboard />,
   },
   {
     path: '/admin',
