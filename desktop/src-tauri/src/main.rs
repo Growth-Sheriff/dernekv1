@@ -89,6 +89,8 @@ fn main() {
             commands::setup::check_initial_setup,
             commands::setup::reset_application,
             commands::license_validation::validate_license,
+            commands::license_validation::validate_license_offline,
+            commands::license_validation::update_license,
             // Login & State Management
             commands::login::login,
             commands::login::logout,

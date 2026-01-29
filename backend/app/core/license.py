@@ -151,8 +151,8 @@ class LicenseValidator:
                     error_message="Lisans kodu doğrulanamadı (checksum hatalı)"
                 )
             
-            # Platform bitlerini çöz
-            xor_key = int(hashlib.md5(LICENSE_SECRET.encode()).hexdigest()[:8], 16)
+            # Platform bitlerini çöz - 16 bit XOR key kullan (generator ile aynı)
+            xor_key = int(hashlib.md5(LICENSE_SECRET.encode()).hexdigest()[:8], 16) & 0xFFFF
             platform_xored = int(platform_segment, 16)
             platform_bits = platform_xored ^ xor_key
             
@@ -167,7 +167,12 @@ class LicenseValidator:
             
             # Timestamp'i datetime'a çevir
             try:
-                expiry_date = datetime.fromtimestamp(expiry_timestamp)
+                # Eğer timestamp çok küçükse (16 bit), bu günlerdir değil saniyedir
+                # Gerçekçi bir tarih için: şu an + (decoded value * 1 gün)
+                if expiry_timestamp < 100000:  # Çok küçük = gün olarak yorumla
+                    expiry_date = datetime.utcnow() + timedelta(days=expiry_timestamp if expiry_timestamp > 0 else 365)
+                else:
+                    expiry_date = datetime.fromtimestamp(expiry_timestamp)
             except:
                 # Hatalı timestamp, uzun bir süre ver
                 expiry_date = datetime.utcnow() + timedelta(days=365)

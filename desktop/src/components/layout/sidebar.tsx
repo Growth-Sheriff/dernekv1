@@ -87,7 +87,17 @@ const navigation: NavItem[] = [
       { name: 'Kasa Raporu', href: '/raporlar/kasa', icon: Wallet },
     ],
   },
-  { name: 'Ayarlar', href: '/ayarlar', icon: Settings },
+  {
+    name: 'Ayarlar',
+    href: '/ayarlar',
+    icon: Settings,
+    children: [
+      { name: 'Genel', href: '/ayarlar/genel', icon: Settings },
+      { name: 'Lisans', href: '/ayarlar/lisans', icon: CreditCard },
+      { name: 'Kullanıcılar', href: '/ayarlar/kullanicilar', icon: Users },
+      { name: 'Yedekleme', href: '/ayarlar/yedekleme', icon: FileText },
+    ],
+  },
 ];
 
 const simpleNavigation: NavItem[] = [
@@ -95,7 +105,15 @@ const simpleNavigation: NavItem[] = [
   { name: 'Aidat', href: '/aidat', icon: CreditCard },
   { name: 'Gelirler', href: '/mali/gelirler', icon: TrendingUp },
   { name: 'Giderler', href: '/mali/giderler', icon: TrendingDown },
-  { name: 'Ayarlar', href: '/ayarlar', icon: Settings },
+  {
+    name: 'Ayarlar',
+    href: '/ayarlar',
+    icon: Settings,
+    children: [
+      { name: 'Genel', href: '/ayarlar/genel', icon: Settings },
+      { name: 'Lisans', href: '/ayarlar/lisans', icon: CreditCard },
+    ],
+  },
 ];
 
 // ============================================================================

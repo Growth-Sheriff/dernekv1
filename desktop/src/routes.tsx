@@ -82,6 +82,7 @@ import KoyVirmanlarPage from './pages/koy/virmanlar';
 import AyarlarGenelPage from './pages/ayarlar/genel';
 import AyarlarKullanicilarPage from './pages/ayarlar/kullanicilar';
 import AyarlarYedeklemePage from './pages/ayarlar/yedekleme';
+import LisansAyarlari from './pages/ayarlar/lisans';
 
 // Settings - User Management
 import UsersPage from './pages/settings/users';
@@ -230,6 +231,7 @@ export const routes: RouteObject[] = [
           { path: 'genel', element: <AyarlarGenelPage /> },
           { path: 'kullanicilar', element: <AyarlarKullanicilarPage /> },
           { path: 'yedekleme', element: <AyarlarYedeklemePage /> },
+          { path: 'lisans', element: <LisansAyarlari /> },
         ],
       },
       {

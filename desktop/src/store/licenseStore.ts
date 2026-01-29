@@ -32,19 +32,25 @@ interface LicenseFeatures {
 
 interface License {
   id: string;
+  key?: string;
   license_key: string;
   plan: LicensePlan;
   features: LicenseFeatures;
   hardware_id?: string;
   expires_at?: string;
   is_active: boolean;
+  // Platform enablement fields
+  desktop_enabled?: boolean;
+  web_enabled?: boolean;
+  mobile_enabled?: boolean;
+  sync_enabled?: boolean;
 }
 
 interface LicenseState {
   license: License | null;
   mode: LicensePlan;
   hardwareId: string | null;
-  
+
   setLicense: (license: License) => void;
   setMode: (mode: LicensePlan) => void;
   setHardwareId: (id: string) => void;
@@ -59,35 +65,35 @@ export const useLicenseStore = create<LicenseState>()(
       license: null,
       mode: 'LOCAL',
       hardwareId: null,
-      
+
       setLicense: (license) => set({ license, mode: license.plan }),
-      
+
       setMode: (mode) => set({ mode }),
-      
+
       setHardwareId: (id) => set({ hardwareId: id }),
-      
+
       hasFeature: (feature) => {
         const { license } = get();
         if (!license) return false;
-        
+
         const parts = feature.split('.');
         let value: any = license.features;
-        
+
         for (const part of parts) {
           value = value?.[part];
         }
-        
+
         return Boolean(value);
       },
-      
+
       isWithinLimit: (limit, current) => {
         const { license } = get();
         if (!license) return false;
-        
+
         const maxValue = license.features.limits[limit as keyof typeof license.features.limits];
         return current < maxValue;
       },
-      
+
       clearLicense: () => set({
         license: null,
         mode: 'LOCAL',
