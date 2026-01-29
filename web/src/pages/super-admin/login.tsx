@@ -56,8 +56,9 @@ export default function SuperAdminLoginPage() {
 
             const data = await response.json();
 
-            // Check if user is super_admin
-            if (data.user?.role !== 'super_admin') {
+            // Check if user is super_admin (case-insensitive)
+            const userRole = data.user?.role?.toUpperCase();
+            if (userRole !== 'SUPER_ADMIN') {
                 throw new Error('Bu sayfa sadece Super Admin kullanıcıları içindir');
             }
 
