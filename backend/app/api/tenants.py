@@ -9,7 +9,7 @@ from typing import Optional, List
 from datetime import datetime
 import uuid
 
-from app.db import get_session
+from app.core.db import get_session
 from app.models.base import Tenant, User
 from app.api.auth import get_current_user
 
