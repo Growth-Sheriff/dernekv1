@@ -291,7 +291,7 @@ def validate_license(
                 "id": license_obj.tenant_id,
                 "name": current_tenant.name if current_tenant else "Bilinmeyen Organizasyon",
                 "slug": current_tenant.slug if current_tenant else None,
-                "created_at": current_tenant.created_at.isoformat() if current_tenant and current_tenant.created_at else None
+                "created_at": current_tenant.created_at if current_tenant else None
             },
             "license": {
                 "id": license_obj.id,
