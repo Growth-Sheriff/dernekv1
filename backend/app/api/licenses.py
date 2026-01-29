@@ -280,7 +280,7 @@ def validate_license(
     # Zaten atanmış mı?
     if license_obj.tenant_id:
         # Mevcut organizasyon bilgilerini getir
-        from app.models.tenant import Tenant
+        from app.models.base import Tenant
         current_tenant = session.get(Tenant, license_obj.tenant_id)
         
         return {
@@ -392,7 +392,7 @@ def transfer_license(
     if not license_obj:
         raise HTTPException(status_code=404, detail="Lisans bulunamadı")
     
-    from app.models.tenant import Tenant
+    from app.models.base import Tenant
     from datetime import datetime
     import uuid
     
