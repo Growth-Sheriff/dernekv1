@@ -85,8 +85,9 @@ def generate_license(
     Veya manuel:
     - desktop_enabled, web_enabled, mobile_enabled, sync_enabled alanlarını kullan
     """
-    # Yetki kontrolü
-    if current_user.role != "super_admin" and current_user.role != UserRole.SUPER_ADMIN:
+    # Yetki kontrolü - case-insensitive
+    user_role = str(current_user.role).upper()
+    if user_role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Sadece Super Admin lisans oluşturabilir")
     
     # Tenant ID (opsiyonel)
@@ -162,7 +163,9 @@ def list_all_licenses(
     """
     Tüm lisansları listele (Sadece Super Admin)
     """
-    if current_user.role != "super_admin" and current_user.role != UserRole.SUPER_ADMIN:
+    # Yetki kontrolü - case-insensitive
+    user_role = str(current_user.role).upper()
+    if user_role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Yetersiz yetki")
     
     licenses = session.exec(select(License)).all()
@@ -199,7 +202,9 @@ def assign_license(
     """
     Bir lisansı tenant'a ata (Sadece Super Admin)
     """
-    if current_user.role != "super_admin" and current_user.role != UserRole.SUPER_ADMIN:
+    # Yetki kontrolü - case-insensitive
+    user_role = str(current_user.role).upper()
+    if user_role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Yetersiz yetki")
     
     # Lisansı bul
@@ -340,7 +345,9 @@ def upgrade_license(
     Mevcut lisansı yeni bir lisans koduyla yükseltir.
     Eski lisans pasife çekilir, yeni lisans aktif edilir.
     """
-    if current_user.role != "admin" and current_user.role != UserRole.ADMIN:
+    # Yetki kontrolü - case-insensitive
+    user_role = str(current_user.role).upper()
+    if user_role not in ["ADMIN", "SUPER_ADMIN"]:
         raise HTTPException(status_code=403, detail="Sadece yöneticiler lisans yükseltebilir")
     
     tenant_id = current_user.tenant_id
