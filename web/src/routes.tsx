@@ -98,11 +98,7 @@ const ProtectedGuard = () => {
 };
 
 export const routes: RouteObject[] = [
-  {
-    path: '/login',
-    element: <LoginPage />,
-  },
-  // Super Admin Routes (separate from customer login)
+  // Super Admin Routes - FIRST (most specific)
   {
     path: '/super-admin/login',
     element: <SuperAdminLoginPage />,
@@ -110,6 +106,15 @@ export const routes: RouteObject[] = [
   {
     path: '/super-admin/dashboard',
     element: <SuperAdminDashboard />,
+  },
+  {
+    path: '/super-admin',
+    element: <Navigate to="/super-admin/login" replace />,
+  },
+  // Customer Login
+  {
+    path: '/login',
+    element: <LoginPage />,
   },
   {
     path: '/admin',
@@ -256,6 +261,6 @@ export const routes: RouteObject[] = [
   },
   {
     path: '*',
-    element: <Navigate to="/" replace />
+    element: <Navigate to="/login" replace />
   }
 ];
