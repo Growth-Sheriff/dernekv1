@@ -18,7 +18,7 @@ interface UseSyncReturn {
   pendingChanges: number;
   conflicts: SyncConflict[];
   errors: string[];
-  
+
   // Aksiyonlar
   sync: () => Promise<void>;
   pushChanges: () => Promise<void>;
@@ -29,7 +29,7 @@ interface UseSyncReturn {
 
 export const useSync = (options: UseSyncOptions): UseSyncReturn => {
   const { tenantId, autoSync = true, syncInterval = 5 * 60 * 1000 } = options; // Default 5 dakika
-  
+
   // Store state
   const {
     isSyncing,
@@ -42,43 +42,43 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
     addSyncError,
     clearSyncErrors,
   } = useSyncStore();
-  
+
   const { mode: licenseMode } = useLicenseStore();
-  
+
   // Local state
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
   const [deviceId, setDeviceId] = useState<string>('');
-  
+
   // Refs
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Online/Offline detection
   useEffect(() => {
     const handleOnline = () => {
       console.log('📶 Çevrimiçi oldu');
       setIsOnline(true);
-      
+
       // Online olunca otomatik sync
       if (autoSync && pendingChanges > 0) {
         syncAll();
       }
     };
-    
+
     const handleOffline = () => {
       console.log('📴 Çevrimdışı oldu');
       setIsOnline(false);
     };
-    
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, [autoSync, pendingChanges]);
-  
+
   // Device ID al
   useEffect(() => {
     const getDeviceId = async () => {
@@ -91,29 +91,29 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
         setDeviceId(`device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
       }
     };
-    
+
     getDeviceId();
   }, []);
-  
+
   // Auto sync timer
   useEffect(() => {
     if (!autoSync || licenseMode === 'LOCAL') {
       return;
     }
-    
+
     syncTimerRef.current = setInterval(() => {
       if (isOnline && !isSyncing) {
         syncAll();
       }
     }, syncInterval);
-    
+
     return () => {
       if (syncTimerRef.current) {
         clearInterval(syncTimerRef.current);
       }
     };
   }, [autoSync, isOnline, isSyncing, syncInterval, licenseMode]);
-  
+
   // Pending changes'ı yükle
   useEffect(() => {
     const loadPendingChanges = async () => {
@@ -124,10 +124,10 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
         console.error('Pending changes yüklenemedi:', error);
       }
     };
-    
+
     loadPendingChanges();
   }, [tenantId]);
-  
+
   /**
    * Tüm değişiklikleri senkronize et (push + pull)
    */
@@ -135,24 +135,24 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
     if (!isOnline || isSyncing || licenseMode === 'LOCAL') {
       return;
     }
-    
+
     startSync();
     clearSyncErrors();
-    
+
     try {
       // 1. Push local changes
       await pushChanges();
-      
+
       // 2. Pull server changes
       await pullChanges();
-      
+
       finishSync(true);
     } catch (error) {
       addSyncError(String(error));
       finishSync(false);
     }
   }, [isOnline, isSyncing, licenseMode]);
-  
+
   /**
    * Local değişiklikleri sunucuya gönder
    */
@@ -160,17 +160,17 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
     if (!isOnline || licenseMode === 'LOCAL') {
       throw new Error('Çevrimdışı veya LOCAL modda push yapılamaz');
     }
-    
+
     try {
       // Local'den bekleyen değişiklikleri al
-      const changes = await invoke<SyncChange[]>('get_pending_sync_changes', { 
-        tenantIdParam: tenantId 
+      const changes = await invoke<SyncChange[]>('get_pending_sync_changes', {
+        tenantIdParam: tenantId
       });
-      
+
       if (changes.length === 0) {
         return;
       }
-      
+
       // Sunucuya gönder
       const response = await syncApi.push({
         tenant_id: tenantId,
@@ -178,24 +178,24 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
         changes,
         last_sync_at: lastSyncAt || undefined,
       });
-      
+
       // Başarılı sync'leri işaretle
       await invoke('mark_changes_synced', {
         tenantIdParam: tenantId,
         changeIds: changes.map(c => c.record_id),
       });
-      
+
       // Conflict varsa kaydet
       if (response.conflicts.length > 0) {
         setConflicts(prev => [...prev, ...response.conflicts]);
       }
-      
+
       setPendingChanges(0);
     } catch (error) {
       throw new Error(`Push hatası: ${error}`);
     }
   }, [isOnline, licenseMode, tenantId, deviceId, lastSyncAt]);
-  
+
   /**
    * Sunucudan değişiklikleri çek
    */
@@ -203,34 +203,61 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
     if (!isOnline || licenseMode === 'LOCAL') {
       throw new Error('Çevrimdışı veya LOCAL modda pull yapılamaz');
     }
-    
+
     try {
-      const response = await syncApi.pull({
-        tenant_id: tenantId,
-        device_id: deviceId,
-        last_sync_at: lastSyncAt || undefined,
-      });
-      
-      if (response.changes.length === 0) {
+      const response = await syncApi.pull(tenantId, lastSyncAt || undefined);
+
+      // Response içindeki data'dan verileri al
+      const data = response.data || response;
+      const changes: SyncChange[] = [];
+
+      // Server'dan gelen verileri change formatına dönüştür
+      if (data.uyeler && Array.isArray(data.uyeler)) {
+        for (const uye of data.uyeler) {
+          changes.push({ table_name: 'uyeler', record_id: uye.id, action: 'update', data: uye, local_updated_at: new Date().toISOString() });
+        }
+      }
+      if (data.gelirler && Array.isArray(data.gelirler)) {
+        for (const gelir of data.gelirler) {
+          changes.push({ table_name: 'gelirler', record_id: gelir.id, action: 'update', data: gelir, local_updated_at: new Date().toISOString() });
+        }
+      }
+      if (data.giderler && Array.isArray(data.giderler)) {
+        for (const gider of data.giderler) {
+          changes.push({ table_name: 'giderler', record_id: gider.id, action: 'update', data: gider, local_updated_at: new Date().toISOString() });
+        }
+      }
+      if (data.kasalar && Array.isArray(data.kasalar)) {
+        for (const kasa of data.kasalar) {
+          changes.push({ table_name: 'kasalar', record_id: kasa.id, action: 'update', data: kasa, local_updated_at: new Date().toISOString() });
+        }
+      }
+      if (data.aidatlar && Array.isArray(data.aidatlar)) {
+        for (const aidat of data.aidatlar) {
+          changes.push({ table_name: 'aidat_takip', record_id: aidat.id, action: 'update', data: aidat, local_updated_at: new Date().toISOString() });
+        }
+      }
+
+      if (changes.length === 0) {
         return;
       }
-      
+
       // Değişiklikleri local DB'ye uygula
       await invoke('apply_sync_changes', {
         tenantIdParam: tenantId,
-        changes: response.changes,
+        changes: changes,
       });
-      
+
     } catch (error) {
       throw new Error(`Pull hatası: ${error}`);
     }
-  }, [isOnline, licenseMode, tenantId, deviceId, lastSyncAt]);
-  
+  }, [isOnline, licenseMode, tenantId, lastSyncAt]);
+
   /**
    * Conflict çöz
    */
   const resolveConflict = useCallback(async (
-    conflictId: string, 
+    conflictId: string,
     resolution: 'keep_local' | 'keep_server'
   ) => {
     try {
@@ -238,14 +265,14 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
         conflict_id: conflictId,
         resolution,
       }]);
-      
+
       // Conflict listesinden kaldır
       setConflicts(prev => prev.filter(c => c.record_id !== conflictId));
     } catch (error) {
       throw new Error(`Conflict çözme hatası: ${error}`);
     }
   }, []);
-  
+
   /**
    * Değişiklik kuyruğuna ekle
    */
@@ -260,13 +287,13 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
           local_updated_at: new Date().toISOString(),
         },
       });
-      
+
       setPendingChanges(pendingChanges + 1);
     } catch (error) {
       console.error('Change kuyruğa eklenemedi:', error);
     }
   }, [tenantId, pendingChanges]);
-  
+
   return {
     // Durum
     isOnline,
@@ -275,7 +302,7 @@ export const useSync = (options: UseSyncOptions): UseSyncReturn => {
     pendingChanges,
     conflicts,
     errors: syncErrors,
-    
+
     // Aksiyonlar
     sync: syncAll,
     pushChanges,
