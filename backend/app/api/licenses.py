@@ -273,7 +273,32 @@ def validate_license(
     
     # Zaten atanmış mı?
     if license_obj.tenant_id:
-        return {"valid": False, "message": "Bu lisans zaten başka bir organizasyon tarafından kullanılıyor"}
+        # Mevcut organizasyon bilgilerini getir
+        from app.models.tenant import Tenant
+        current_tenant = session.get(Tenant, license_obj.tenant_id)
+        
+        return {
+            "valid": False, 
+            "already_assigned": True,
+            "message": "Bu lisans zaten başka bir organizasyon tarafından kullanılıyor",
+            "current_organization": {
+                "id": license_obj.tenant_id,
+                "name": current_tenant.name if current_tenant else "Bilinmeyen Organizasyon",
+                "slug": current_tenant.slug if current_tenant else None,
+                "created_at": current_tenant.created_at.isoformat() if current_tenant and current_tenant.created_at else None
+            },
+            "license": {
+                "id": license_obj.id,
+                "key": license_obj.key,
+                "type": license_obj.get_license_type_name(),
+                "desktop_enabled": license_obj.desktop_enabled,
+                "web_enabled": license_obj.web_enabled,
+                "mobile_enabled": license_obj.mobile_enabled,
+                "sync_enabled": license_obj.sync_enabled,
+                "end_date": license_obj.end_date
+            },
+            "can_transfer": True
+        }
     
     return {
         "valid": True,
@@ -322,6 +347,92 @@ def activate_license(
     
     return {
         "success": True,
+        "license": {
+            "id": license_obj.id,
+            "key": license_obj.key,
+            "type": license_obj.get_license_type_name(),
+            "desktop_enabled": license_obj.desktop_enabled,
+            "web_enabled": license_obj.web_enabled,
+            "mobile_enabled": license_obj.mobile_enabled,
+            "sync_enabled": license_obj.sync_enabled,
+            "end_date": license_obj.end_date
+        }
+    }
+
+
+@router.post("/transfer")
+def transfer_license(
+    data: dict = Body(...),
+    session: Session = Depends(get_session)
+):
+    """
+    Lisansı başka bir organizasyona transfer eder.
+    Yeni organizasyon bilgileri ile lisans güncellenir.
+    """
+    license_key = data.get("license_key")
+    new_tenant_name = data.get("tenant_name")
+    new_tenant_slug = data.get("tenant_slug")
+    confirm_transfer = data.get("confirm", False)
+    
+    if not license_key:
+        raise HTTPException(status_code=400, detail="Lisans anahtarı gerekli")
+    
+    if not confirm_transfer:
+        raise HTTPException(status_code=400, detail="Transfer onayı gerekli")
+    
+    # Lisansı bul
+    license_obj = session.exec(select(License).where(License.key == license_key)).first()
+    
+    if not license_obj:
+        raise HTTPException(status_code=404, detail="Lisans bulunamadı")
+    
+    from app.models.tenant import Tenant
+    from datetime import datetime
+    import uuid
+    
+    # Eski tenant bilgisi
+    old_tenant = None
+    if license_obj.tenant_id:
+        old_tenant = session.get(Tenant, license_obj.tenant_id)
+    
+    # Yeni tenant oluştur veya mevcut olanı kullan
+    new_tenant = None
+    if new_tenant_slug:
+        new_tenant = session.exec(select(Tenant).where(Tenant.slug == new_tenant_slug)).first()
+    
+    if not new_tenant:
+        # Yeni tenant oluştur
+        new_tenant = Tenant(
+            id=str(uuid.uuid4()),
+            name=new_tenant_name or "Yeni Organizasyon",
+            slug=new_tenant_slug or f"org-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
+        session.add(new_tenant)
+        session.commit()
+        session.refresh(new_tenant)
+    
+    # Lisansı yeni tenant'a ata
+    license_obj.tenant_id = new_tenant.id
+    license_obj.updated_at = datetime.utcnow()
+    session.add(license_obj)
+    session.commit()
+    session.refresh(license_obj)
+    
+    return {
+        "success": True,
+        "message": "Lisans başarıyla transfer edildi",
+        "old_organization": {
+            "id": old_tenant.id if old_tenant else None,
+            "name": old_tenant.name if old_tenant else None
+        } if old_tenant else None,
+        "new_organization": {
+            "id": new_tenant.id,
+            "name": new_tenant.name,
+            "slug": new_tenant.slug
+        },
         "license": {
             "id": license_obj.id,
             "key": license_obj.key,

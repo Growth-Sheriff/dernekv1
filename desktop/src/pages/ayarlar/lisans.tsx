@@ -31,7 +31,23 @@ export const LisansAyarlari: React.FC = () => {
     const [showKey, setShowKey] = useState(false);
     const [isValidating, setIsValidating] = useState(false);
     const [isActivating, setIsActivating] = useState(false);
-    const [validationResult, setValidationResult] = useState<{ valid: boolean; message?: string; license?: any } | null>(null);
+    const [isTransferring, setIsTransferring] = useState(false);
+    const [validationResult, setValidationResult] = useState<{
+        valid: boolean;
+        message?: string;
+        license?: any;
+        already_assigned?: boolean;
+        current_organization?: {
+            id: string;
+            name: string;
+            slug?: string;
+            created_at?: string;
+        };
+        can_transfer?: boolean;
+    } | null>(null);
+    const [showTransferModal, setShowTransferModal] = useState(false);
+    const [newOrgName, setNewOrgName] = useState('');
+    const [newOrgSlug, setNewOrgSlug] = useState('');
 
     const currentLicense: LicenseDetails | null = license ? {
         key: license.key || '***-***-***-***',
@@ -73,6 +89,10 @@ export const LisansAyarlari: React.FC = () => {
 
             if (result.valid) {
                 toast.success('Lisans geçerli!');
+            } else if (result.already_assigned && result.can_transfer) {
+                // Lisans başka organizasyona ait - transfer modal'ını aç
+                setShowTransferModal(true);
+                toast.warning('Bu lisans başka bir organizasyona ait');
             } else {
                 toast.error(result.message || 'Geçersiz lisans');
             }
@@ -93,6 +113,47 @@ export const LisansAyarlari: React.FC = () => {
             }
         } finally {
             setIsValidating(false);
+        }
+    };
+
+    const handleTransfer = async () => {
+        if (!newOrgName.trim()) {
+            toast.error('Lütfen organizasyon adı girin');
+            return;
+        }
+
+        setIsTransferring(true);
+
+        try {
+            const response = await fetch('http://157.90.154.48:8000/api/v1/licenses/transfer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    license_key: newLicenseKey,
+                    tenant_name: newOrgName,
+                    tenant_slug: newOrgSlug || newOrgName.toLowerCase().replace(/\s+/g, '-'),
+                    confirm: true
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                toast.success('Lisans başarıyla transfer edildi!');
+                setShowTransferModal(false);
+
+                // Validation result'ı güncelle
+                setValidationResult({
+                    valid: true,
+                    license: result.license
+                });
+            } else {
+                toast.error(result.message || 'Transfer başarısız');
+            }
+        } catch (error: any) {
+            toast.error(`Transfer hatası: ${error.message || error}`);
+        } finally {
+            setIsTransferring(false);
         }
     };
 
@@ -417,6 +478,166 @@ export const LisansAyarlari: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Transfer Onay Modal */}
+            {showTransferModal && validationResult?.already_assigned && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-amber-500 to-orange-600 p-6 rounded-t-2xl">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+                                    <AlertTriangle className="w-6 h-6 text-white" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-white">Lisans Transfer</h3>
+                                    <p className="text-amber-100 text-sm">Bu lisans başka bir organizasyona ait</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 space-y-6">
+                            {/* Mevcut Organizasyon Bilgisi */}
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                                <h4 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
+                                    <X className="w-4 h-4" />
+                                    Mevcut Organizasyon
+                                </h4>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-red-600">Organizasyon Adı:</span>
+                                        <span className="font-semibold text-red-800">
+                                            {validationResult.current_organization?.name || 'Bilinmiyor'}
+                                        </span>
+                                    </div>
+                                    {validationResult.current_organization?.slug && (
+                                        <div className="flex justify-between">
+                                            <span className="text-red-600">Slug:</span>
+                                            <span className="font-mono text-red-800">
+                                                {validationResult.current_organization.slug}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {validationResult.current_organization?.created_at && (
+                                        <div className="flex justify-between">
+                                            <span className="text-red-600">Kayıt Tarihi:</span>
+                                            <span className="text-red-800">
+                                                {new Date(validationResult.current_organization.created_at).toLocaleDateString('tr-TR')}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Lisans Özellikleri */}
+                            {validationResult.license && (
+                                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                                        <Key className="w-4 h-4" />
+                                        Lisans Özellikleri
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                        <div className="flex items-center gap-2">
+                                            <Monitor className={`w-4 h-4 ${validationResult.license.desktop_enabled ? 'text-green-500' : 'text-gray-400'}`} />
+                                            <span>Desktop: {validationResult.license.desktop_enabled ? 'Aktif' : 'Kapalı'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Globe className={`w-4 h-4 ${validationResult.license.web_enabled ? 'text-green-500' : 'text-gray-400'}`} />
+                                            <span>Web: {validationResult.license.web_enabled ? 'Aktif' : 'Kapalı'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Smartphone className={`w-4 h-4 ${validationResult.license.mobile_enabled ? 'text-green-500' : 'text-gray-400'}`} />
+                                            <span>Mobil: {validationResult.license.mobile_enabled ? 'Aktif' : 'Kapalı'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <RefreshCw className={`w-4 h-4 ${validationResult.license.sync_enabled ? 'text-green-500' : 'text-gray-400'}`} />
+                                            <span>Sync: {validationResult.license.sync_enabled ? 'Aktif' : 'Kapalı'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Yeni Organizasyon Bilgileri */}
+                            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                                <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    Yeni Organizasyon Bilgileri
+                                </h4>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-green-700 mb-1">
+                                            Organizasyon Adı *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newOrgName}
+                                            onChange={(e) => setNewOrgName(e.target.value)}
+                                            placeholder="Dernek adınızı girin"
+                                            className="w-full px-4 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-green-700 mb-1">
+                                            Slug (opsiyonel)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newOrgSlug}
+                                            onChange={(e) => setNewOrgSlug(e.target.value.toLowerCase().replace(/\s+/g, '-'))}
+                                            placeholder="dernek-slug"
+                                            className="w-full px-4 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono"
+                                        />
+                                        <p className="text-xs text-green-600 mt-1">
+                                            Boş bırakırsanız otomatik oluşturulur
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Uyarı */}
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                                <div className="flex gap-3">
+                                    <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                                    <div>
+                                        <p className="text-sm text-amber-800 font-medium">Dikkat!</p>
+                                        <p className="text-sm text-amber-700 mt-1">
+                                            Bu işlem lisansı mevcut organizasyondan alıp sizin organizasyonunuza aktaracaktır.
+                                            Eski organizasyonun lisansa erişimi kesilecektir.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 border-t border-gray-200 flex gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowTransferModal(false);
+                                    setNewOrgName('');
+                                    setNewOrgSlug('');
+                                }}
+                                className="flex-1 py-3 px-4 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 font-medium transition-colors"
+                            >
+                                İptal
+                            </button>
+                            <button
+                                onClick={handleTransfer}
+                                disabled={isTransferring || !newOrgName.trim()}
+                                className="flex-1 py-3 px-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl hover:from-amber-600 hover:to-orange-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold flex items-center justify-center gap-2 transition-all"
+                            >
+                                {isTransferring ? (
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                ) : (
+                                    <Sparkles className="w-5 h-5" />
+                                )}
+                                {isTransferring ? 'Transfer Ediliyor...' : 'Lisansı Transfer Et'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
