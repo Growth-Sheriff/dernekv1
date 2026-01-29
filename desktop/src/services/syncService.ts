@@ -283,6 +283,116 @@ class SyncService {
             mode: this.licenseMode
         };
     }
+
+    /**
+     * Sunucudan veri çek ve local DB'ye kaydet
+     */
+    async pullFromServer(tenantId: string): Promise<{ success: boolean; counts: Record<string, number> }> {
+        if (!this.shouldSync()) {
+            return { success: false, counts: {} };
+        }
+
+        try {
+            console.log('📥 Sunucudan veri çekiliyor...');
+
+            const response = await fetch(`${API_BASE_URL}/sync/pull/${tenantId}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                console.error('❌ Pull hatası:', response.status, response.statusText);
+                return { success: false, counts: {} };
+            }
+
+            const data = await response.json();
+            const counts: Record<string, number> = {};
+
+            // Üyeleri local DB'ye kaydet
+            if (data.uyeler && Array.isArray(data.uyeler)) {
+                counts.uyeler = data.uyeler.length;
+                for (const uye of data.uyeler) {
+                    try {
+                        await invoke('upsert_uye_from_sync', {
+                            tenantIdParam: tenantId,
+                            uye: uye
+                        });
+                    } catch (e) {
+                        console.warn('Üye upsert hatası:', e);
+                    }
+                }
+            }
+
+            // Gelirleri local DB'ye kaydet
+            if (data.gelirler && Array.isArray(data.gelirler)) {
+                counts.gelirler = data.gelirler.length;
+                for (const gelir of data.gelirler) {
+                    try {
+                        await invoke('upsert_gelir_from_sync', {
+                            tenantIdParam: tenantId,
+                            gelir: gelir
+                        });
+                    } catch (e) {
+                        console.warn('Gelir upsert hatası:', e);
+                    }
+                }
+            }
+
+            // Giderleri local DB'ye kaydet
+            if (data.giderler && Array.isArray(data.giderler)) {
+                counts.giderler = data.giderler.length;
+                for (const gider of data.giderler) {
+                    try {
+                        await invoke('upsert_gider_from_sync', {
+                            tenantIdParam: tenantId,
+                            gider: gider
+                        });
+                    } catch (e) {
+                        console.warn('Gider upsert hatası:', e);
+                    }
+                }
+            }
+
+            // Kasaları local DB'ye kaydet
+            if (data.kasalar && Array.isArray(data.kasalar)) {
+                counts.kasalar = data.kasalar.length;
+                for (const kasa of data.kasalar) {
+                    try {
+                        await invoke('upsert_kasa_from_sync', {
+                            tenantIdParam: tenantId,
+                            kasa: kasa
+                        });
+                    } catch (e) {
+                        console.warn('Kasa upsert hatası:', e);
+                    }
+                }
+            }
+
+            // Aidatları local DB'ye kaydet
+            if (data.aidatlar && Array.isArray(data.aidatlar)) {
+                counts.aidatlar = data.aidatlar.length;
+                for (const aidat of data.aidatlar) {
+                    try {
+                        await invoke('upsert_aidat_from_sync', {
+                            tenantIdParam: tenantId,
+                            aidat: aidat
+                        });
+                    } catch (e) {
+                        console.warn('Aidat upsert hatası:', e);
+                    }
+                }
+            }
+
+            console.log('✅ Pull tamamlandı:', counts);
+            return { success: true, counts };
+        } catch (error) {
+            console.error('❌ Pull hatası:', error);
+            return { success: false, counts: {} };
+        }
+    }
 }
 
 // Singleton instance

@@ -103,6 +103,57 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [isAuthenticated, logout, loading]);
 
+  // AUTO-SYNC: Pull data from server when in HYBRID mode
+  useEffect(() => {
+    if (!isAuthenticated || loading) return;
+
+    const runAutoSync = async () => {
+      try {
+        // Check license mode from localStorage
+        const licenseStorage = localStorage.getItem('license-storage');
+        if (!licenseStorage) return;
+
+        const parsedLicense = JSON.parse(licenseStorage);
+        const licenseMode = parsedLicense?.state?.mode || parsedLicense?.state?.license?.plan;
+
+        // Only sync in HYBRID mode
+        if (licenseMode !== 'HYBRID') {
+          console.log(`📡 Sync skipped - mode: ${licenseMode}`);
+          return;
+        }
+
+        // Get tenant info
+        const authStorage = localStorage.getItem('auth-storage');
+        if (!authStorage) return;
+
+        const parsedAuth = JSON.parse(authStorage);
+        const tenantId = parsedAuth?.state?.tenant?.id;
+        const token = parsedAuth?.state?.token;
+
+        if (!tenantId || !token) return;
+
+        console.log('🔄 Auto-sync starting (HYBRID mode)...');
+
+        // Import sync service and pull data
+        const { syncService } = await import('@/services/syncService');
+        syncService.configure(token, 'hybrid');
+        await syncService.pullFromServer(tenantId);
+
+        console.log('✅ Auto-sync completed');
+      } catch (error) {
+        console.warn('🔴 Auto-sync failed:', error);
+      }
+    };
+
+    // Initial sync on login
+    runAutoSync();
+
+    // Sync every 2 minutes
+    const syncInterval = setInterval(runAutoSync, 2 * 60 * 1000);
+    return () => clearInterval(syncInterval);
+  }, [isAuthenticated, loading]);
+
+
   const checkInitialSetup = async () => {
     console.log('🏁 checkInitialSetup çalışıyor, isTauri:', isTauri());
     if (!isTauri()) {

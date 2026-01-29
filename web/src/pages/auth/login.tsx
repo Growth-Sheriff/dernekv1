@@ -45,7 +45,10 @@ export const LoginPage: React.FC = () => {
       // Web için HTTP API kullan
       const response = await fetch(`${API_URL}/api/v1/auth/token`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Platform': 'web'  // Backend platform erişim kontrolü için
+        },
         body: new URLSearchParams({ username: data.email, password: data.password }),
       });
 
@@ -62,9 +65,12 @@ export const LoginPage: React.FC = () => {
         saveCredentials(data.email, data.password);
       }
 
-      // Auth store'a kaydet
-      login(result.user, result.tenant, result.access_token);
-      setMode(data.mode);
+      // Auth store'a kaydet (license bilgisini de geç)
+      login(result.user, result.tenant, result.access_token, result.license);
+
+      // Lisans modunu ayarla (backend'den gelen lisans tipine göre)
+      const licenseType = result.license?.type || data.mode;
+      setMode(licenseType);
 
       toast.success('Giriş başarılı!');
       navigate('/');
@@ -95,8 +101,8 @@ export const LoginPage: React.FC = () => {
                   <label
                     key={mode}
                     className={`relative flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-colors ${selectedMode === mode
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 hover:border-blue-300'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 hover:border-blue-300'
                       } ${mode === 'LOCAL' ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <input
