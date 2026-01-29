@@ -87,6 +87,7 @@ import AyarlarGenelPage from './pages/ayarlar/genel';
 import AyarlarKullanicilarPage from './pages/ayarlar/kullanicilar';
 import AyarlarYedeklemePage from './pages/ayarlar/yedekleme';
 import LisansPage from './pages/ayarlar/lisans';
+import LicenseUpgradePage from './pages/LicenseUpgrade';
 
 // ============================================================================
 // Guards
@@ -253,6 +254,7 @@ export const routes: RouteObject[] = [
               { path: 'kullanicilar', element: <AyarlarKullanicilarPage /> },
               { path: 'yedekleme', element: <AyarlarYedeklemePage /> },
               { path: 'lisans', element: <LisansPage /> },
+              { path: 'lisans-yukseltme', element: <LicenseUpgradePage /> },
             ]
           }
         ]

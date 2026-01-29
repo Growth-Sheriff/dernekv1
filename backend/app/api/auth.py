@@ -41,6 +41,32 @@ async def login_for_access_token(
         ).first()
         
         if license_obj:
+            # Lisans süre kontrolü
+            is_expired = False
+            days_until_expiry = None
+            
+            if license_obj.end_date:
+                from datetime import datetime
+                try:
+                    end_date = datetime.fromisoformat(license_obj.end_date.replace('Z', '+00:00'))
+                    now = datetime.utcnow()
+                    if hasattr(end_date, 'tzinfo') and end_date.tzinfo:
+                        from datetime import timezone
+                        now = datetime.now(timezone.utc)
+                    
+                    if end_date < now:
+                        is_expired = True
+                    else:
+                        days_until_expiry = (end_date - now).days
+                except:
+                    pass
+            
+            if is_expired:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Lisans süresi doldu. Lütfen lisansınızı yenileyin.",
+                )
+            
             license_info = {
                 "key": license_obj.key,
                 "desktop_enabled": license_obj.desktop_enabled,
@@ -48,7 +74,10 @@ async def login_for_access_token(
                 "mobile_enabled": license_obj.mobile_enabled,
                 "sync_enabled": license_obj.sync_enabled,
                 "type": license_obj.get_license_type_name(),
-                "end_date": license_obj.end_date
+                "end_date": license_obj.end_date,
+                "is_expired": is_expired,
+                "days_until_expiry": days_until_expiry,
+                "expiry_warning": days_until_expiry is not None and days_until_expiry <= 30
             }
             
             # Platform erişim kontrolü

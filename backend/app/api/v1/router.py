@@ -1,30 +1,27 @@
 """
-API v1 Router
+API v1 Router - Çalışan Modüller
 """
 from fastapi import APIRouter
 
-# Only import working modules that use correct db/auth imports
-from app.api.v1 import (
-    aidat, gelirler, giderler, etkinlikler, dashboard
-)
+# Sadece çalışan modülleri dahil et
+from app.api.v1 import aidat, dashboard
 
 api_router = APIRouter()
 
-# Mali (Working)
-api_router.include_router(gelirler.router, prefix="/gelirler", tags=["gelirler"])
-api_router.include_router(giderler.router, prefix="/giderler", tags=["giderler"])
-
-# Aidat (Working)
+# Aidat API (Düzeltildi)
 api_router.include_router(aidat.router, prefix="/aidat", tags=["aidat"])
 
-# Etkinlikler (Working)
-api_router.include_router(etkinlikler.router, prefix="/etkinlikler", tags=["etkinlikler"])
+# Dashboard API
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
-# Dashboard (Already included in main.py separately)
-# api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
-
-# TODO: Fix these modules to use correct imports (get_session, get_current_user from app.api.auth)
-# - uyeler, kasalar, toplantilar, belgeler, butce, virmanlar, raporlar, ayarlar
-# - auth, tenants, licenses (already in main app)
-# - users, roles, permissions (need implementation)
-
+# NOT: Diğer modüller henüz skeleton olarak bırakılmış
+# Bunlar düzeltildiğinde buraya eklenecek:
+# - uyeler (import hataları ve TODO'lar mevcut)
+# - gelirler (aynı)
+# - giderler (aynı)
+# - kasalar (aynı)
+# - etkinlikler (aynı)
+# - toplantilar (aynı)
+# - belgeler (aynı)
+# - butce (aynı)
+# - virmanlar (aynı)

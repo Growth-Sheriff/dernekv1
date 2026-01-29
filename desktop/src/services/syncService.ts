@@ -310,80 +310,80 @@ class SyncService {
 
             const data = await response.json();
             const counts: Record<string, number> = {};
+            const changes: any[] = [];
 
-            // Üyeleri local DB'ye kaydet
+            // Üyeleri change formatına dönüştür
             if (data.uyeler && Array.isArray(data.uyeler)) {
                 counts.uyeler = data.uyeler.length;
                 for (const uye of data.uyeler) {
-                    try {
-                        await invoke('upsert_uye_from_sync', {
-                            tenantIdParam: tenantId,
-                            uye: uye
-                        });
-                    } catch (e) {
-                        console.warn('Üye upsert hatası:', e);
-                    }
+                    changes.push({
+                        table_name: 'uyeler',
+                        record_id: uye.id,
+                        action: 'update',
+                        data: uye
+                    });
                 }
             }
 
-            // Gelirleri local DB'ye kaydet
+            // Gelirleri change formatına dönüştür
             if (data.gelirler && Array.isArray(data.gelirler)) {
                 counts.gelirler = data.gelirler.length;
                 for (const gelir of data.gelirler) {
-                    try {
-                        await invoke('upsert_gelir_from_sync', {
-                            tenantIdParam: tenantId,
-                            gelir: gelir
-                        });
-                    } catch (e) {
-                        console.warn('Gelir upsert hatası:', e);
-                    }
+                    changes.push({
+                        table_name: 'gelirler',
+                        record_id: gelir.id,
+                        action: 'update',
+                        data: gelir
+                    });
                 }
             }
 
-            // Giderleri local DB'ye kaydet
+            // Giderleri change formatına dönüştür
             if (data.giderler && Array.isArray(data.giderler)) {
                 counts.giderler = data.giderler.length;
                 for (const gider of data.giderler) {
-                    try {
-                        await invoke('upsert_gider_from_sync', {
-                            tenantIdParam: tenantId,
-                            gider: gider
-                        });
-                    } catch (e) {
-                        console.warn('Gider upsert hatası:', e);
-                    }
+                    changes.push({
+                        table_name: 'giderler',
+                        record_id: gider.id,
+                        action: 'update',
+                        data: gider
+                    });
                 }
             }
 
-            // Kasaları local DB'ye kaydet
+            // Kasaları change formatına dönüştür
             if (data.kasalar && Array.isArray(data.kasalar)) {
                 counts.kasalar = data.kasalar.length;
                 for (const kasa of data.kasalar) {
-                    try {
-                        await invoke('upsert_kasa_from_sync', {
-                            tenantIdParam: tenantId,
-                            kasa: kasa
-                        });
-                    } catch (e) {
-                        console.warn('Kasa upsert hatası:', e);
-                    }
+                    changes.push({
+                        table_name: 'kasalar',
+                        record_id: kasa.id,
+                        action: 'update',
+                        data: kasa
+                    });
                 }
             }
 
-            // Aidatları local DB'ye kaydet
+            // Aidatları change formatına dönüştür
             if (data.aidatlar && Array.isArray(data.aidatlar)) {
                 counts.aidatlar = data.aidatlar.length;
                 for (const aidat of data.aidatlar) {
-                    try {
-                        await invoke('upsert_aidat_from_sync', {
-                            tenantIdParam: tenantId,
-                            aidat: aidat
-                        });
-                    } catch (e) {
-                        console.warn('Aidat upsert hatası:', e);
-                    }
+                    changes.push({
+                        table_name: 'aidat_takip',
+                        record_id: aidat.id,
+                        action: 'update',
+                        data: aidat
+                    });
                 }
+            }
+
+            // Tüm değişiklikleri tek seferde uygula
+            if (changes.length > 0) {
+                const applied = await invoke<number>('apply_sync_changes', {
+                    tenantIdParam: tenantId,
+                    changes: changes
+                });
+                console.log(`✅ ${applied} kayıt uygulandı`);
             }
 
             console.log('✅ Pull tamamlandı:', counts);

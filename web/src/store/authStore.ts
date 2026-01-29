@@ -24,6 +24,9 @@ interface License {
   mobile_enabled: boolean;
   sync_enabled: boolean;
   end_date: string;
+  is_expired?: boolean;
+  days_until_expiry?: number | null;
+  expiry_warning?: boolean;
 }
 
 interface SavedCredentials {
