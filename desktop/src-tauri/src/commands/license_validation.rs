@@ -308,14 +308,14 @@ pub fn update_license(
     .unwrap_or(false);
     
     if exists {
-        // Update - use end_date instead of expires_at
+        // UPDATE - Desktop schema: expiry_date (not end_date)
         diesel::sql_query(
             "UPDATE licenses SET 
                 desktop_enabled = COALESCE(?1, desktop_enabled),
                 web_enabled = COALESCE(?2, web_enabled),
                 mobile_enabled = COALESCE(?3, mobile_enabled),
                 sync_enabled = COALESCE(?4, sync_enabled),
-                end_date = COALESCE(?5, end_date),
+                expiry_date = COALESCE(?5, expiry_date),
                 plan = COALESCE(?6, plan),
                 updated_at = ?7
              WHERE license_key = ?8"
@@ -331,28 +331,43 @@ pub fn update_license(
         .execute(&mut conn)
         .map_err(|e| format!("Lisans güncellenemedi: {}", e))?;
     } else {
-        // Insert new - use end_date instead of expires_at
-        let uuid = uuid::Uuid::new_v4().to_string();
+        // INSERT - Desktop schema columns exactly:
+        // id, tenant_id, license_key, plan, max_users, max_records, features,
+        // start_date, expiry_date, is_active, created_at, updated_at,
+        // mode, desktop_enabled, web_enabled, mobile_enabled, sync_enabled
         let tenant_id = format!("tenant-{}", uuid::Uuid::new_v4().to_string());
+        let today = now.split(' ').next().unwrap_or(&now);
+        let expiry = license_data.expires_at.clone().unwrap_or_else(|| {
+            chrono::Utc::now()
+                .checked_add_signed(chrono::Duration::days(365))
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_else(|| "2099-12-31".to_string())
+        });
+        let mode = if license_data.sync_enabled.unwrap_or(false) { "hybrid" } else { "local" };
         
         diesel::sql_query(
-            "INSERT INTO licenses (id, tenant_id, license_key, plan, max_users, max_records, 
-                desktop_enabled, web_enabled, mobile_enabled, sync_enabled,
-                starts_at, end_date, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 100, 100000, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12)"
+            "INSERT INTO licenses (
+                tenant_id, license_key, plan, max_users, max_records,
+                start_date, expiry_date, is_active, created_at, updated_at,
+                mode, desktop_enabled, web_enabled, mobile_enabled, sync_enabled
+            ) VALUES (
+                ?1, ?2, ?3, 100, 100000,
+                ?4, ?5, 1, ?6, ?7,
+                ?8, ?9, ?10, ?11, ?12
+            )"
         )
-        .bind::<diesel::sql_types::Text, _>(&uuid)
         .bind::<diesel::sql_types::Text, _>(&tenant_id)
         .bind::<diesel::sql_types::Text, _>(&key)
         .bind::<diesel::sql_types::Text, _>(license_data.plan.as_deref().unwrap_or("HYBRID"))
+        .bind::<diesel::sql_types::Text, _>(today)
+        .bind::<diesel::sql_types::Text, _>(&expiry)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(mode)
         .bind::<diesel::sql_types::Integer, _>(if license_data.desktop_enabled.unwrap_or(true) { 1 } else { 0 })
         .bind::<diesel::sql_types::Integer, _>(if license_data.web_enabled.unwrap_or(false) { 1 } else { 0 })
         .bind::<diesel::sql_types::Integer, _>(if license_data.mobile_enabled.unwrap_or(false) { 1 } else { 0 })
         .bind::<diesel::sql_types::Integer, _>(if license_data.sync_enabled.unwrap_or(false) { 1 } else { 0 })
-        .bind::<diesel::sql_types::Text, _>(&now.split(' ').next().unwrap())
-        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&license_data.expires_at)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&now)
         .execute(&mut conn)
         .map_err(|e| format!("Lisans kaydedilemedi: {}", e))?;
     }
