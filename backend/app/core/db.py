@@ -17,3 +17,6 @@ def create_db_and_tables():
 def get_session():
     with Session(engine) as session:
         yield session
+
+# Alias for backward compatibility with v1 API routes
+get_db = get_session

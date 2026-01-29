@@ -3,5 +3,5 @@ Database Utilities
 """
 from typing import Optional
 
-
-# TODO: Implement database utilities
+# Re-export for backward compatibility
+from app.core.db import get_session, get_db, engine
