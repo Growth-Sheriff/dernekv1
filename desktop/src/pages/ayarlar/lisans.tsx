@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useLicenseStore } from '../../store/licenseStore';
+import { syncService } from '../../services/syncService';
 
 // API URL - Dinamik
 const API_URL = 'http://157.90.154.48:8000';
@@ -219,7 +220,7 @@ export const LisansAyarlari: React.FC = () => {
                 id: licenseData.id,
                 key: licenseData.key,
                 license_key: licenseData.key,
-                plan: licenseData.type,
+                plan: licenseData.type as 'LOCAL' | 'ONLINE' | 'HYBRID',
                 features: {
                     modules: {
                         uye_yonetimi: true,
@@ -255,13 +256,13 @@ export const LisansAyarlari: React.FC = () => {
             });
 
             // 2. Mode'u belirle
+            let newMode: 'LOCAL' | 'ONLINE' | 'HYBRID' = 'LOCAL';
             if (licenseData.sync_enabled && licenseData.web_enabled) {
-                setMode('HYBRID');
+                newMode = 'HYBRID';
             } else if (licenseData.web_enabled) {
-                setMode('ONLINE');
-            } else {
-                setMode('LOCAL');
+                newMode = 'ONLINE';
             }
+            setMode(newMode);
 
             // 3. Local SQLite veritabanına kaydet
             await invoke('update_license', {
@@ -275,6 +276,9 @@ export const LisansAyarlari: React.FC = () => {
                     plan: licenseData.type
                 }
             });
+
+            // 4. SyncService'i konfigüre et
+            syncService.configure('', newMode.toLowerCase() as 'local' | 'hybrid' | 'online');
 
             toast.success('🎉 Lisans başarıyla aktive edildi!');
             setNewLicenseKey('');
@@ -412,8 +416,8 @@ export const LisansAyarlari: React.FC = () => {
                         <div
                             key={platform.key}
                             className={`p-4 rounded-xl border-2 transition-all ${platform.enabled
-                                    ? 'border-green-500 bg-green-50'
-                                    : 'border-gray-200 bg-gray-50'
+                                ? 'border-green-500 bg-green-50'
+                                : 'border-gray-200 bg-gray-50'
                                 }`}
                         >
                             <div className="flex items-center gap-3">
@@ -471,10 +475,10 @@ export const LisansAyarlari: React.FC = () => {
                     {/* Doğrulama Sonucu */}
                     {validationResult && (
                         <div className={`p-4 rounded-xl border-2 ${validationResult.valid
-                                ? 'border-green-500 bg-green-50'
-                                : validationResult.already_assigned
-                                    ? 'border-amber-500 bg-amber-50'
-                                    : 'border-red-500 bg-red-50'
+                            ? 'border-green-500 bg-green-50'
+                            : validationResult.already_assigned
+                                ? 'border-amber-500 bg-amber-50'
+                                : 'border-red-500 bg-red-50'
                             }`}>
                             <div className="flex items-start gap-3">
                                 {validationResult.valid ? (
@@ -486,8 +490,8 @@ export const LisansAyarlari: React.FC = () => {
                                 )}
                                 <div className="flex-1">
                                     <p className={`font-semibold ${validationResult.valid ? 'text-green-800'
-                                            : validationResult.already_assigned ? 'text-amber-800'
-                                                : 'text-red-800'
+                                        : validationResult.already_assigned ? 'text-amber-800'
+                                            : 'text-red-800'
                                         }`}>
                                         {validationResult.valid ? 'Lisans Geçerli!'
                                             : validationResult.already_assigned ? 'Lisans Başka Organizasyona Ait'
