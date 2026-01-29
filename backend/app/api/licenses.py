@@ -247,22 +247,18 @@ def validate_license(
     session: Session = Depends(get_session)
 ):
     """
-    Lisans anahtarını doğrula (Desktop için - Offline da çalışır)
+    Lisans anahtarını doğrula (Desktop için)
+    Veritabanı referans olarak kullanılır - XOR algoritması tutarsızlıklarından kaçınmak için
     """
     key = data.get("license_key")
     if not key:
         raise HTTPException(status_code=400, detail="Lisans anahtarı gerekli")
     
-    # Önce offline validasyon yap (checksum kontrolü)
-    validation_result = LicenseValidator.validate(key)
+    # Format kontrolü - BADER ile başlamalı
+    if not key.upper().startswith("BADER-"):
+        return {"valid": False, "message": "Geçersiz lisans formatı"}
     
-    if not validation_result.is_valid:
-        return {
-            "valid": False, 
-            "message": validation_result.error_message or "Geçersiz lisans"
-        }
-    
-    # Veritabanında da kontrol et
+    # Veritabanında kontrol et (kaynak bu)
     license_obj = session.exec(select(License).where(License.key == key)).first()
     
     if not license_obj:
@@ -270,6 +266,16 @@ def validate_license(
     
     if not license_obj.is_active:
         return {"valid": False, "message": "Lisans pasif"}
+    
+    # Süre kontrolü
+    if license_obj.end_date:
+        try:
+            from dateutil.parser import parse
+            end_date = parse(license_obj.end_date)
+            if end_date < datetime.utcnow():
+                return {"valid": False, "message": "Lisans süresi dolmuş"}
+        except:
+            pass  # Tarih parse edilemezse süresiz kabul et
     
     # Zaten atanmış mı?
     if license_obj.tenant_id:

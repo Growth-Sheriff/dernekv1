@@ -308,14 +308,14 @@ pub fn update_license(
     .unwrap_or(false);
     
     if exists {
-        // Update
+        // Update - use end_date instead of expires_at
         diesel::sql_query(
             "UPDATE licenses SET 
                 desktop_enabled = COALESCE(?1, desktop_enabled),
                 web_enabled = COALESCE(?2, web_enabled),
                 mobile_enabled = COALESCE(?3, mobile_enabled),
                 sync_enabled = COALESCE(?4, sync_enabled),
-                expires_at = COALESCE(?5, expires_at),
+                end_date = COALESCE(?5, end_date),
                 plan = COALESCE(?6, plan),
                 updated_at = ?7
              WHERE license_key = ?8"
@@ -331,14 +331,14 @@ pub fn update_license(
         .execute(&mut conn)
         .map_err(|e| format!("Lisans güncellenemedi: {}", e))?;
     } else {
-        // Insert new
+        // Insert new - use end_date instead of expires_at
         let uuid = uuid::Uuid::new_v4().to_string();
         let tenant_id = format!("tenant-{}", uuid::Uuid::new_v4().to_string());
         
         diesel::sql_query(
             "INSERT INTO licenses (id, tenant_id, license_key, plan, max_users, max_records, 
                 desktop_enabled, web_enabled, mobile_enabled, sync_enabled,
-                starts_at, expires_at, is_active, created_at, updated_at)
+                starts_at, end_date, is_active, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, 100, 100000, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12)"
         )
         .bind::<diesel::sql_types::Text, _>(&uuid)
