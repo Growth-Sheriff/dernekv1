@@ -83,7 +83,7 @@ async def health():
 
 from app.api import auth, licenses, sync, tenants
 from app.api.v1 import dashboard
-from app.api.v1.router import api_router as v1_api_router
+# from app.api.v1.router import api_router as v1_api_router  # TODO: Fix module imports
 
 # Core auth and sync routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
@@ -94,6 +94,7 @@ app.include_router(sync.router, prefix="/api/v1", tags=["sync"])
 # Working v1 API routes
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 
-# ALL v1 Module APIs (uyeler, gelirler, giderler, kasalar, aidat, etkinlikler, etc.)
-app.include_router(v1_api_router, prefix="/api/v1")
+# ALL v1 Module APIs - DISABLED until import issues are fixed
+# app.include_router(v1_api_router, prefix="/api/v1")
+
 
