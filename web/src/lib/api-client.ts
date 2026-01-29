@@ -59,30 +59,84 @@ const mockStats = {
 const COMMAND_MAP: Record<string, { method: string, url: string }> = {
   'login': { method: 'POST', url: '/auth/token' },
   'get_dashboard_stats': { method: 'GET', url: '/dashboard/stats' },
-  'get_uyeler': { method: 'GET', url: '/members' },
-  'get_uye_borc_durumlari': { method: 'POST', url: '/members/debts' },
+
+  // Uyeler CRUD
+  'get_uyeler': { method: 'GET', url: '/uyeler' },
+  'create_uye': { method: 'POST', url: '/uyeler' },
+  'get_uye': { method: 'GET', url: '/uyeler/:id' },
+  'update_uye': { method: 'PUT', url: '/uyeler/:id' },
+  'delete_uye': { method: 'DELETE', url: '/uyeler/:id' },
+  'get_uye_borc_durumlari': { method: 'POST', url: '/uyeler/debts' },
+
+  // Gelirler CRUD
   'get_gelirler': { method: 'GET', url: '/gelirler' },
   'create_gelir': { method: 'POST', url: '/gelirler' },
+  'get_gelir': { method: 'GET', url: '/gelirler/:id' },
+  'update_gelir': { method: 'PUT', url: '/gelirler/:id' },
   'delete_gelir': { method: 'DELETE', url: '/gelirler/:id' },
+
+  // Giderler CRUD
   'get_giderler': { method: 'GET', url: '/giderler' },
   'create_gider': { method: 'POST', url: '/giderler' },
+  'get_gider': { method: 'GET', url: '/giderler/:id' },
+  'update_gider': { method: 'PUT', url: '/giderler/:id' },
   'delete_gider': { method: 'DELETE', url: '/giderler/:id' },
 
-  // Etkinlikler
+  // Etkinlikler CRUD
   'get_etkinlikler': { method: 'GET', url: '/etkinlikler' },
   'create_etkinlik': { method: 'POST', url: '/etkinlikler' },
-  'update_etkinlik': { method: 'PUT', url: '/etkinlikler/:etkinlikId' },
-  'delete_etkinlik': { method: 'DELETE', url: '/etkinlikler/:etkinlikId' },
+  'get_etkinlik': { method: 'GET', url: '/etkinlikler/:id' },
+  'update_etkinlik': { method: 'PUT', url: '/etkinlikler/:id' },
+  'delete_etkinlik': { method: 'DELETE', url: '/etkinlikler/:id' },
 
-  // Aidat
+  // Aidat CRUD
+  'get_aidatlar': { method: 'GET', url: '/aidat' },
   'get_aidat_takip': { method: 'GET', url: '/aidat' },
-  'create_aidat': { method: 'POST', url: '/aidat' }, // Frontend'de henüz yoksa da ekleyelim
-  'update_aidat_odeme': { method: 'PUT', url: '/aidat/:odemeId' },
-  'delete_aidat_odeme': { method: 'DELETE', url: '/aidat/:odemeId' },
+  'create_aidat': { method: 'POST', url: '/aidat' },
+  'get_aidat': { method: 'GET', url: '/aidat/:id' },
+  'update_aidat': { method: 'PUT', url: '/aidat/:id' },
+  'update_aidat_odeme': { method: 'PUT', url: '/aidat/:id' },
+  'delete_aidat': { method: 'DELETE', url: '/aidat/:id' },
+  'delete_aidat_odeme': { method: 'DELETE', url: '/aidat/:id' },
+
+  // Kasalar CRUD
+  'get_kasalar': { method: 'GET', url: '/kasalar' },
+  'get_kasa_ozet': { method: 'GET', url: '/kasalar/ozet' },
+  'create_kasa': { method: 'POST', url: '/kasalar' },
+  'get_kasa': { method: 'GET', url: '/kasalar/:id' },
+  'update_kasa': { method: 'PUT', url: '/kasalar/:id' },
+  'delete_kasa': { method: 'DELETE', url: '/kasalar/:id' },
+
+  // Toplantilar CRUD
+  'get_toplantilar': { method: 'GET', url: '/toplantilar' },
+  'create_toplanti': { method: 'POST', url: '/toplantilar' },
+  'get_toplanti': { method: 'GET', url: '/toplantilar/:id' },
+  'update_toplanti': { method: 'PUT', url: '/toplantilar/:id' },
+  'delete_toplanti': { method: 'DELETE', url: '/toplantilar/:id' },
+
+  // Belgeler CRUD
+  'get_belgeler': { method: 'GET', url: '/belgeler' },
+  'create_belge': { method: 'POST', url: '/belgeler' },
+  'get_belge': { method: 'GET', url: '/belgeler/:id' },
+  'update_belge': { method: 'PUT', url: '/belgeler/:id' },
+  'delete_belge': { method: 'DELETE', url: '/belgeler/:id' },
+
+  // Butce CRUD
+  'get_butce': { method: 'GET', url: '/butce' },
+  'create_butce': { method: 'POST', url: '/butce' },
+  'update_butce': { method: 'PUT', url: '/butce/:id' },
+  'delete_butce': { method: 'DELETE', url: '/butce/:id' },
+
+  // Virmanlar CRUD
+  'get_virmanlar': { method: 'GET', url: '/virmanlar' },
+  'create_virman': { method: 'POST', url: '/virmanlar' },
+  'get_virman': { method: 'GET', url: '/virmanlar/:id' },
+  'update_virman': { method: 'PUT', url: '/virmanlar/:id' },
+  'delete_virman': { method: 'DELETE', url: '/virmanlar/:id' },
 
   // Backup / Sync / License
   'sync_push': { method: 'POST', url: '/sync/push' },
-  'sync_pull': { method: 'POST', url: '/sync/pull' },
+  'sync_pull': { method: 'GET', url: '/sync/pull/:tenantId' },
   'check_license': { method: 'GET', url: '/licenses/my-license' },
   'upgrade_license': { method: 'POST', url: '/licenses/upgrade' },
 
@@ -95,15 +149,12 @@ const COMMAND_MAP: Record<string, { method: string, url: string }> = {
   'create_license': { method: 'POST', url: '/licenses/' },
   'assign_license': { method: 'POST', url: '/licenses/assign' },
 
-  // Kasalar
-  'get_kasalar': { method: 'GET', url: '/kasalar' },
-  'get_kasa_ozet': { method: 'GET', url: '/kasalar/ozet' },
-  'create_kasa': { method: 'POST', url: '/kasalar' },
-  'update_kasa': { method: 'PUT', url: '/kasalar/:id' },
-  'delete_kasa': { method: 'DELETE', url: '/kasalar/:id' },
+  // Raporlar
+  'get_raporlar': { method: 'GET', url: '/raporlar' },
 
-  // Aidat Ekstra
-  'get_aidat_ozet': { method: 'GET', url: '/aidat/ozet' },
+  // Ayarlar
+  'get_ayarlar': { method: 'GET', url: '/ayarlar' },
+  'update_ayarlar': { method: 'PUT', url: '/ayarlar' },
 };
 
 // Token helper
