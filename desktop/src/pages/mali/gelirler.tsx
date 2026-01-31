@@ -118,6 +118,16 @@ export const GelirlerPage: React.FC = () => {
   const [dekontNo, setDekontNo] = useState('');
   const [selectedUyeId, setSelectedUyeId] = useState('');
   const [evrakData, setEvrakData] = useState<EvrakData | null>(null);
+  // Eksik alanlar - Faz 1
+  const [tahsilEden, setTahsilEden] = useState('');
+  const [belgeNo, setBelgeNo] = useState('');
+  const [altKategori, setAltKategori] = useState('');
+  const [aitOlduguYil, setAitOlduguYil] = useState<number>(new Date().getFullYear());
+  const [notlar, setNotlar] = useState('');
+  // Eksik alanlar - Faz 2 (Son eklenenler)
+  const [tahakkukDurumu, setTahakkukDurumu] = useState('TAHSIL_EDILDI');
+  const [aidatId, setAidatId] = useState('');
+  const [aidatlar, setAidatlar] = useState<{ id: string; donem: string; tutar: number }[]>([]);
 
   // Extract filters
   const baslangicTarih = filterValues.find(f => f.id === 'baslangic_tarih')?.value || '';
@@ -276,10 +286,30 @@ export const GelirlerPage: React.FC = () => {
     const tutarNum = parseFloat(tutar);
     if (isNaN(tutarNum) || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
     try {
+      // Gelir verileri - TÜM ALANLAR (Backend'deki CreateGelirRequest ile uyumlu)
+      const gelirData = {
+        kasa_id: kasaId,
+        gelir_turu_id: gelirTuruId || null,
+        tarih,
+        tutar: tutarNum,
+        aciklama: aciklama || null,
+        makbuz_no: dekontNo || null,
+        uye_id: selectedUyeId || null,
+        // Faz 1 alanları
+        tahsil_eden: tahsilEden || null,
+        belge_no: belgeNo || null,
+        alt_kategori: altKategori || null,
+        ait_oldugu_yil: aitOlduguYil || null,
+        // Faz 2 alanları (Son eklenenler)
+        tahakkuk_durumu: tahakkukDurumu || null,
+        aidat_id: aidatId || null,
+        belge_id: evrakData?.belge_id || null,
+      };
+
       // 1. Local DB'ye kaydet
       const result = await invoke<{ id: string }>('create_gelir', {
         tenantIdParam: tenant.id,
-        data: { kasa_id: kasaId, gelir_turu_id: gelirTuruId || null, tarih, tutar: tutarNum, aciklama: aciklama || null, makbuz_no: dekontNo || null, uye_id: selectedUyeId || null },
+        data: gelirData,
       });
 
       // 2. Sync kuyruğuna ekle (HYBRID modda sunucuya da gönderilir)
@@ -287,21 +317,19 @@ export const GelirlerPage: React.FC = () => {
       await syncService.queueChange(tenant.id, 'gelirler', 'create', {
         id: result.id,
         tenant_id: tenant.id,
-        kasa_id: kasaId,
-        gelir_turu_id: gelirTuruId || null,
-        tarih,
-        tutar: tutarNum,
-        aciklama: aciklama || null,
-        makbuz_no: dekontNo || null,
-        uye_id: selectedUyeId || null
+        ...gelirData,
       });
 
       toast.success('Gelir eklendi!');
       setShowForm(false);
+      // Formu temizle
       setTutar(''); setAciklama(''); setDekontNo(''); setSelectedUyeId('');
+      setTahsilEden(''); setBelgeNo(''); setAltKategori(''); setNotlar('');
+      setTahakkukDurumu('TAHSIL_EDILDI'); setAidatId(''); setEvrakData(null);
       refetch();
     } catch (error) { toast.error('Gelir eklenemedi: ' + error); }
   };
+
 
   const handleDelete = async () => {
     if (!tenant || !deletingGelir) return;
@@ -472,14 +500,15 @@ export const GelirlerPage: React.FC = () => {
 
       {/* Add Modal */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white"><TrendingUp className="w-5 h-5" /></div>
               <span>Yeni Gelir Ekle</span>
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-6 py-4">
+          <form onSubmit={handleSubmit} className="space-y-5 py-4">
+            {/* ROW 1: Kasa ve Gelir Türü */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Kasa *</label>
@@ -495,6 +524,8 @@ export const GelirlerPage: React.FC = () => {
                 </select>
               </div>
             </div>
+
+            {/* ROW 2: Tarih, Tutar, Yıl */}
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tarih *</label>
@@ -508,14 +539,94 @@ export const GelirlerPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Makbuz No</label>
-                <input type="text" value={dekontNo} onChange={(e) => setDekontNo(e.target.value)} className="w-full h-10 rounded-lg border px-3" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ait Olduğu Yıl</label>
+                <select value={aitOlduguYil} onChange={(e) => setAitOlduguYil(parseInt(e.target.value))} className="w-full h-10 rounded-lg border px-3">
+                  {[...Array(5)].map((_, i) => {
+                    const year = new Date().getFullYear() - 2 + i;
+                    return <option key={year} value={year}>{year}</option>;
+                  })}
+                </select>
               </div>
             </div>
+
+            {/* ROW 3: Makbuz No, Belge No, Alt Kategori */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Makbuz No</label>
+                <input type="text" value={dekontNo} onChange={(e) => setDekontNo(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="MKB-001" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Belge No</label>
+                <input type="text" value={belgeNo} onChange={(e) => setBelgeNo(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="BLG-001" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Alt Kategori</label>
+                <select value={altKategori} onChange={(e) => setAltKategori(e.target.value)} className="w-full h-10 rounded-lg border px-3">
+                  <option value="">Seçiniz</option>
+                  <option value="AIDAT">Aidat</option>
+                  <option value="BAGIS">Bağış</option>
+                  <option value="ETKINLIK">Etkinlik</option>
+                  <option value="KIRA">Kira</option>
+                  <option value="DIGER">Diğer</option>
+                </select>
+              </div>
+            </div>
+
+            {/* ROW 4: İlgili Üye ve Tahsil Eden */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">İlgili Üye</label>
+                <select
+                  value={selectedUyeId}
+                  onChange={(e) => setSelectedUyeId(e.target.value)}
+                  className="w-full h-10 rounded-lg border px-3"
+                >
+                  <option value="">Üye Seçin (Opsiyonel)</option>
+                  {uyeler.map(u => (
+                    <option key={u.id} value={u.id}>{u.uye_no} - {u.ad_soyad}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tahsil Eden</label>
+                <input type="text" value={tahsilEden} onChange={(e) => setTahsilEden(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="Tahsil eden kişi" />
+              </div>
+            </div>
+
+            {/* ROW 5: Açıklama */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
-              <textarea value={aciklama} onChange={(e) => setAciklama(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" />
+              <textarea value={aciklama} onChange={(e) => setAciklama(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" placeholder="Gelir hakkında açıklama..." />
             </div>
+
+            {/* ROW 6: Tahakkuk Durumu */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tahakkuk Durumu</label>
+                <select value={tahakkukDurumu} onChange={(e) => setTahakkukDurumu(e.target.value)} className="w-full h-10 rounded-lg border px-3">
+                  <option value="TAHSIL_EDILDI">Tahsil Edildi</option>
+                  <option value="BEKLIYOR">Bekliyor</option>
+                  <option value="KISMI_TAHSILAT">Kısmi Tahsilat</option>
+                  <option value="IPTAL">İptal</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Aidat Bağlantısı</label>
+                <select value={aidatId} onChange={(e) => setAidatId(e.target.value)} className="w-full h-10 rounded-lg border px-3">
+                  <option value="">Aidat Seçin (Opsiyonel)</option>
+                  {aidatlar.map(a => (
+                    <option key={a.id} value={a.id}>{a.donem} - ₺{a.tutar}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* ROW 7: Notlar */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notlar</label>
+              <textarea value={notlar} onChange={(e) => setNotlar(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" placeholder="Ek notlar (dahili kullanım)..." />
+            </div>
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowForm(false)}>İptal</Button>
               <Button type="submit" className="bg-green-600 hover:bg-green-700">Kaydet</Button>

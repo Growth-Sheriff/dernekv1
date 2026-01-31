@@ -111,6 +111,7 @@ export const GiderlerPage: React.FC = () => {
   // Form state
   const [kasalar, setKasalar] = useState<Kasa[]>([]);
   const [giderTurleri, setGiderTurleri] = useState<GiderTuru[]>([]);
+  const [uyeler, setUyeler] = useState<{ id: string; uye_no: string; ad_soyad: string }[]>([]);
   const [kasaId, setKasaId] = useState('');
   const [giderTuruId, setGiderTuruId] = useState('');
   const [tarih, setTarih] = useState(new Date().toISOString().split('T')[0]);
@@ -121,6 +122,13 @@ export const GiderlerPage: React.FC = () => {
   const [demirbasAdi, setDemirbasAdi] = useState('');
   const [demirbasKategori, setDemirbasKategori] = useState('');
   const [evrakData, setEvrakData] = useState<EvrakData | null>(null);
+  // Eksik alanlar - Faz 1
+  const [odeyen, setOdeyen] = useState('');
+  const [islemNo, setIslemNo] = useState('');
+  const [altKategori, setAltKategori] = useState('');
+  const [notlar, setNotlar] = useState('');
+  // Eksik alanlar - Faz 2 (Son eklenenler)
+  const [selectedUyeId, setSelectedUyeId] = useState('');
 
   const baslangicTarih = filterValues.find(f => f.id === 'baslangic_tarih')?.value || '';
   const bitisTarih = filterValues.find(f => f.id === 'bitis_tarih')?.value || '';
@@ -135,6 +143,7 @@ export const GiderlerPage: React.FC = () => {
     if (!tenant) { setLoading(false); return; }
     loadKasalar();
     loadGiderTurleri();
+    loadUyeler();
     loadGiderler();
   }, [tenant, baslangicTarih, bitisTarih]);
 
@@ -153,6 +162,14 @@ export const GiderlerPage: React.FC = () => {
       const result = await invoke<GiderTuru[]>('get_gider_turleri', { tenantIdParam: tenant.id });
       setGiderTurleri(result);
     } catch (error) { console.error('Gider türleri yüklenemedi:', error); }
+  };
+
+  const loadUyeler = async () => {
+    if (!tenant) return;
+    try {
+      const result = await invoke<{ id: string; uye_no: string; ad_soyad: string }[]>('get_uyeler', { tenantIdParam: tenant.id });
+      setUyeler(result);
+    } catch (error) { console.error('Üyeler yüklenemedi:', error); }
   };
 
   const loadGiderler = async () => {
@@ -265,14 +282,28 @@ export const GiderlerPage: React.FC = () => {
     const tutarNum = parseFloat(tutar);
     if (isNaN(tutarNum) || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
     try {
+      // Gider verileri - TÜM ALANLAR
+      const giderData = {
+        kasa_id: kasaId,
+        gider_turu_id: giderTuruId || null,
+        tarih,
+        tutar: tutarNum,
+        aciklama: demirbasEkle ? `Demirbaş: ${demirbasAdi}` : (aciklama || null),
+        fatura_no: faturaNo || null,
+        alt_kategori: demirbasEkle ? 'DEMIRBAS' : (altKategori || null),
+        // Faz 1 alanları
+        islem_no: islemNo || null,
+        odeyen: odeyen || null,
+        notlar: notlar || null,
+        // Faz 2 alanları (Son eklenenler)
+        uye_id: selectedUyeId || null,
+        belge_id: evrakData?.belge_id || null,
+      };
+
       // 1. Local DB'ye kaydet
       const giderId = await invoke<string>('create_gider', {
         tenantIdParam: tenant.id,
-        data: {
-          kasa_id: kasaId, gider_turu_id: giderTuruId || null, tarih, tutar: tutarNum,
-          aciklama: demirbasEkle ? `Demirbaş: ${demirbasAdi}` : (aciklama || null),
-          fatura_no: faturaNo || null, alt_kategori: demirbasEkle ? 'DEMIRBAS' : null,
-        },
+        data: giderData,
       });
 
       // 2. Sync kuyruğuna ekle
@@ -280,12 +311,7 @@ export const GiderlerPage: React.FC = () => {
       await syncService.queueChange(tenant.id, 'giderler', 'create', {
         id: giderId,
         tenant_id: tenant.id,
-        kasa_id: kasaId,
-        gider_turu_id: giderTuruId || null,
-        tarih,
-        tutar: tutarNum,
-        aciklama: demirbasEkle ? `Demirbaş: ${demirbasAdi}` : (aciklama || null),
-        fatura_no: faturaNo || null
+        ...giderData,
       });
 
       if (demirbasEkle && demirbasAdi) {
@@ -296,10 +322,14 @@ export const GiderlerPage: React.FC = () => {
       }
       toast.success('Gider eklendi!');
       setShowForm(false);
+      // Formu temizle
       setTutar(''); setAciklama(''); setFaturaNo(''); setDemirbasEkle(false); setDemirbasAdi(''); setDemirbasKategori('');
+      setOdeyen(''); setIslemNo(''); setAltKategori(''); setNotlar('');
+      setSelectedUyeId(''); setEvrakData(null);
       loadGiderler();
     } catch (error) { toast.error('Gider eklenemedi: ' + error); }
   };
+
 
   const handleDelete = async () => {
     if (!tenant || !deletingGider) return;
@@ -447,14 +477,15 @@ export const GiderlerPage: React.FC = () => {
 
       {/* Add Modal */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-500 to-rose-600 flex items-center justify-center text-white"><TrendingDown className="w-5 h-5" /></div>
               <span>Yeni Gider Ekle</span>
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-6 py-4">
+          <form onSubmit={handleSubmit} className="space-y-5 py-4">
+            {/* ROW 1: Kasa ve Gider Türü */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Kasa *</label>
@@ -470,6 +501,8 @@ export const GiderlerPage: React.FC = () => {
                 </select>
               </div>
             </div>
+
+            {/* ROW 2: Tarih, Tutar, Alt Kategori */}
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tarih *</label>
@@ -483,14 +516,62 @@ export const GiderlerPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fatura No</label>
-                <input type="text" value={faturaNo} onChange={(e) => setFaturaNo(e.target.value)} className="w-full h-10 rounded-lg border px-3" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Alt Kategori</label>
+                <select value={altKategori} onChange={(e) => setAltKategori(e.target.value)} className="w-full h-10 rounded-lg border px-3">
+                  <option value="">Seçiniz</option>
+                  <option value="PERSONEL">Personel Gideri</option>
+                  <option value="KIRA">Kira</option>
+                  <option value="FATURA">Fatura</option>
+                  <option value="DEMIRBAS">Demirbaş</option>
+                  <option value="MALZEME">Malzeme</option>
+                  <option value="DIGER">Diğer</option>
+                </select>
               </div>
             </div>
+
+            {/* ROW 3: Fatura No, İşlem No, Ödeyen */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fatura No</label>
+                <input type="text" value={faturaNo} onChange={(e) => setFaturaNo(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="FTR-001" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">İşlem No</label>
+                <input type="text" value={islemNo} onChange={(e) => setIslemNo(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="ISL-001" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ödeyen Kişi</label>
+                <input type="text" value={odeyen} onChange={(e) => setOdeyen(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="Ödemeyi yapan kişi" />
+              </div>
+            </div>
+
+            {/* ROW 4: Açıklama */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
-              <textarea value={aciklama} onChange={(e) => setAciklama(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" />
+              <textarea value={aciklama} onChange={(e) => setAciklama(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" placeholder="Gider hakkında açıklama..." />
             </div>
+
+            {/* ROW 5: İlgili Üye */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">İlgili Üye</label>
+              <select
+                value={selectedUyeId}
+                onChange={(e) => setSelectedUyeId(e.target.value)}
+                className="w-full h-10 rounded-lg border px-3"
+              >
+                <option value="">Üye Seçin (Opsiyonel)</option>
+                {uyeler.map(u => (
+                  <option key={u.id} value={u.id}>{u.uye_no} - {u.ad_soyad}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ROW 6: Notlar */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notlar</label>
+              <textarea value={notlar} onChange={(e) => setNotlar(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" placeholder="Ek notlar (dahili kullanım)..." />
+            </div>
+
             {/* Demirbaş */}
             <div className="border-t pt-4">
               <div className="flex items-center gap-3 mb-4">

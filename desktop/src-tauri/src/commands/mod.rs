@@ -30,3 +30,5 @@ pub mod cariler;
 pub mod aidat_tanimlari;
 pub mod kur;
 pub mod gorunum;
+pub mod device;
+pub mod error_logger;

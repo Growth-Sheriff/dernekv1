@@ -81,7 +81,7 @@ async def root():
 async def health():
     return {"status": "healthy"}
 
-from app.api import auth, licenses, sync, tenants
+from app.api import auth, licenses, sync, tenants, devices
 from app.api.v1 import dashboard, aidat
 from app.api.v1.router import api_router as v1_api_router
 
@@ -90,6 +90,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(licenses.router, prefix="/api/v1/licenses", tags=["licenses"])
 app.include_router(tenants.router, prefix="/api/v1/tenants", tags=["tenants"])
 app.include_router(sync.router, prefix="/api/v1", tags=["sync"])
+app.include_router(devices.router, prefix="/api/v1/devices", tags=["devices"])
 
 # V1 Module APIs (çalışan modüller)
 app.include_router(v1_api_router, prefix="/api/v1")
