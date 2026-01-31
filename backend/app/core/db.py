@@ -2,6 +2,7 @@ import os
 from sqlmodel import SQLModel, create_engine, Session
 from app.models.base import * # Import models to register them
 from app.models.device import * # Device tracking models
+from app.models.notification import * # Notification and presence models
 
 # Database path - absolute path for container
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/database.db")

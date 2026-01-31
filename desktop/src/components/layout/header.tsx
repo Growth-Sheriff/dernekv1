@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { ViewModeToggle } from '@/components/ui/view-mode-toggle';
+import { NotificationBell } from '@/components/ui/notification-bell';
 
 interface HeaderProps {
   className?: string;
@@ -64,20 +65,7 @@ export const Header: React.FC<HeaderProps> = ({ className }) => {
         <ThemeToggle />
 
         {/* Notifications */}
-        <button
-          className={cn(
-            'relative p-2 rounded-lg',
-            'text-muted-foreground hover:text-foreground',
-            'hover:bg-muted/60',
-            'transition-all duration-200',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-          )}
-          aria-label="Bildirimler"
-        >
-          <Bell className="h-5 w-5" />
-          {/* Notification Dot */}
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
-        </button>
+        <NotificationBell />
 
         {/* Separator */}
         <div className="h-6 w-px bg-border/50 mx-1" />
