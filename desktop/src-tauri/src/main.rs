@@ -192,7 +192,6 @@ fn main() {
             commands::sync::apply_sync_changes,
             commands::sync::get_device_id,
             // Device Fingerprint
-            commands::device::get_device_id,
             commands::device::get_system_info,
             // User Management
             commands::users::get_users,

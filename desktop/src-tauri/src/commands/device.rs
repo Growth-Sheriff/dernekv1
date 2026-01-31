@@ -18,37 +18,8 @@ pub struct SystemInfo {
     pub disk_serial: Option<String>,
 }
 
-/// Benzersiz cihaz ID'si al veya oluştur
-#[command]
-pub fn get_device_id() -> Result<String, String> {
-    // Önce disk serial veya MAC adresinden bir ID oluşturmaya çalış
-    // Bu başarısız olursa, config'den oku veya yeni oluştur
-    
-    let config_dir = dirs::config_dir()
-        .ok_or("Config dizini bulunamadı")?
-        .join("bader");
-    
-    let device_id_file = config_dir.join("device_id");
-    
-    // Eğer dosya varsa, içindekileri döndür
-    if device_id_file.exists() {
-        return std::fs::read_to_string(&device_id_file)
-            .map_err(|e| format!("Device ID okunamadı: {}", e));
-    }
-    
-    // Yeni device ID oluştur
-    let device_id = generate_device_id();
-    
-    // Dizini oluştur
-    std::fs::create_dir_all(&config_dir)
-        .map_err(|e| format!("Config dizini oluşturulamadı: {}", e))?;
-    
-    // Dosyaya yaz
-    std::fs::write(&device_id_file, &device_id)
-        .map_err(|e| format!("Device ID kaydedilemedi: {}", e))?;
-    
-    Ok(device_id)
-}
+// Not: get_device_id komutu sync.rs modülünde tanımlı
+// Buradaki generate_device_id sadece internal helper olarak kullanılıyor
 
 /// Device ID oluştur (hardware bilgilerinden)
 fn generate_device_id() -> String {

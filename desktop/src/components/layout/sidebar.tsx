@@ -22,6 +22,7 @@ import {
   Crown,
   Zap,
   Calendar,
+  RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -94,6 +95,7 @@ const navigation: NavItem[] = [
     children: [
       { name: 'Genel', href: '/ayarlar/genel', icon: Settings },
       { name: 'Lisans', href: '/ayarlar/lisans', icon: CreditCard },
+      { name: 'Senkronizasyon', href: '/ayarlar/sync', icon: RefreshCw },
       { name: 'Kullanıcılar', href: '/ayarlar/kullanicilar', icon: Users },
       { name: 'Yedekleme', href: '/ayarlar/yedekleme', icon: FileText },
     ],
@@ -112,6 +114,7 @@ const simpleNavigation: NavItem[] = [
     children: [
       { name: 'Genel', href: '/ayarlar/genel', icon: Settings },
       { name: 'Lisans', href: '/ayarlar/lisans', icon: CreditCard },
+      { name: 'Senkronizasyon', href: '/ayarlar/sync', icon: RefreshCw },
     ],
   },
 ];

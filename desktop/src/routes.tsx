@@ -83,6 +83,7 @@ import AyarlarGenelPage from './pages/ayarlar/genel';
 import AyarlarKullanicilarPage from './pages/ayarlar/kullanicilar';
 import AyarlarYedeklemePage from './pages/ayarlar/yedekleme';
 import LisansAyarlari from './pages/ayarlar/lisans';
+import SyncAyarlari from './pages/ayarlar/sync';
 
 // Settings - User Management
 import UsersPage from './pages/settings/users';
@@ -232,6 +233,7 @@ export const routes: RouteObject[] = [
           { path: 'kullanicilar', element: <AyarlarKullanicilarPage /> },
           { path: 'yedekleme', element: <AyarlarYedeklemePage /> },
           { path: 'lisans', element: <LisansAyarlari /> },
+          { path: 'sync', element: <SyncAyarlari /> },
         ],
       },
       {
