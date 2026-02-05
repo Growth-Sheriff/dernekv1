@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, Plus, Building2, MoreVertical, Ban, CheckCircle } from 'lucide-react';
+import { Search, Plus, Building2, MoreVertical, Ban, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -29,6 +29,10 @@ export default function TenantsPage() {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [newTenant, setNewTenant] = useState({ name: '', slug: '', contact_email: '', max_users: 100 });
 
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
     React.useEffect(() => {
         fetchTenants();
     }, [fetchTenants]);
@@ -37,6 +41,18 @@ export default function TenantsPage() {
         t.name.toLowerCase().includes(search.toLowerCase()) ||
         t.contact_email.toLowerCase().includes(search.toLowerCase())
     );
+
+    // Calculate pagination
+    const totalPages = Math.ceil(filteredTenants.length / itemsPerPage);
+    const paginatedTenants = filteredTenants.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    // Reset to page 1 when search changes
+    React.useEffect(() => {
+        setCurrentPage(1);
+    }, [search]);
 
     const handleCreate = async () => {
         try {
@@ -94,7 +110,7 @@ export default function TenantsPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {filteredTenants.map((tenant: any) => (
+                        {paginatedTenants.map((tenant: any) => (
                             <TableRow key={tenant.id}>
                                 <TableCell>
                                     <div className="flex items-center gap-3">
@@ -141,7 +157,7 @@ export default function TenantsPage() {
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {filteredTenants.length === 0 && (
+                        {paginatedTenants.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={6} className="text-center py-8 text-slate-500">
                                     Kayıt bulunamadı
@@ -151,6 +167,38 @@ export default function TenantsPage() {
                     </TableBody>
                 </Table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 bg-white p-4 rounded-xl border border-slate-200">
+                    <p className="text-sm text-slate-500">
+                        Toplam <span className="font-medium text-slate-700">{filteredTenants.length}</span> kayıttan
+                        <span className="font-medium text-slate-700"> {(currentPage - 1) * itemsPerPage + 1}</span> -
+                        <span className="font-medium text-slate-700"> {Math.min(currentPage * itemsPerPage, filteredTenants.length)}</span> arası gösteriliyor
+                    </p>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage(prev => prev - 1)}
+                        >
+                            <ChevronLeft className="w-4 h-4 mr-1" /> Önceki
+                        </Button>
+                        <div className="flex items-center px-4 text-sm font-medium">
+                            Sayfa {currentPage} / {totalPages}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={currentPage === totalPages}
+                            onClick={() => setCurrentPage(prev => prev + 1)}
+                        >
+                            Sonraki <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Create Modal */}
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

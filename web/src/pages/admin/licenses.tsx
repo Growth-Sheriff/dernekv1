@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, Plus, Key, Calendar, Building2, Copy } from 'lucide-react';
+import { Search, Plus, Key, Calendar, Building2, Copy, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import {
     Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -33,10 +33,26 @@ export default function LicensesPage() {
         price: 0
     });
 
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
     const filteredLicenses = licenses.filter((l: any) =>
         l.key.toLowerCase().includes(search.toLowerCase()) ||
         l.tenant_name.toLowerCase().includes(search.toLowerCase())
     );
+
+    // Calculate pagination
+    const totalPages = Math.ceil(filteredLicenses.length / itemsPerPage);
+    const paginatedLicenses = filteredLicenses.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
+    // Reset to page 1 when search changes
+    React.useEffect(() => {
+        setCurrentPage(1);
+    }, [search]);
 
     const handleCreate = async () => {
         try {
@@ -105,7 +121,7 @@ export default function LicensesPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {filteredLicenses.map((lic: any) => (
+                        {paginatedLicenses.map((lic: any) => (
                             <TableRow key={lic.id}>
                                 <TableCell>
                                     <div className="flex items-center gap-2 font-mono text-xs bg-slate-100 px-2 py-1 rounded w-fit">
@@ -128,15 +144,14 @@ export default function LicensesPage() {
                                 <TableCell>
                                     <div className="flex items-center gap-2 text-sm text-slate-600">
                                         <Calendar className="w-4 h-4 text-slate-400" />
-                                        {new Date(lic.end_date).toLocaleDateString()}
+                                        {lic.end_date ? new Date(lic.end_date).toLocaleDateString() : 'Süresiz'}
                                     </div>
                                 </TableCell>
                                 <TableCell>
                                     <Badge className={
-                                        lic.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
-                                            lic.status === 'EXPIRED' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+                                        lic.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                                     }>
-                                        {lic.status}
+                                        {lic.is_active ? 'AKTİF' : 'PASİF'}
                                     </Badge>
                                 </TableCell>
                                 <TableCell>
@@ -144,16 +159,41 @@ export default function LicensesPage() {
                                 </TableCell>
                             </TableRow>
                         ))}
-                        {filteredLicenses.length === 0 && (
-                            <TableRow>
-                                <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                                    Lisans bulunamadı
-                                </TableCell>
-                            </TableRow>
-                        )}
                     </TableBody>
                 </Table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 bg-white p-4 rounded-xl border border-slate-200">
+                    <p className="text-sm text-slate-500">
+                        Toplam <span className="font-medium text-slate-700">{filteredLicenses.length}</span> kayıttan
+                        <span className="font-medium text-slate-700"> {(currentPage - 1) * itemsPerPage + 1}</span> -
+                        <span className="font-medium text-slate-700"> {Math.min(currentPage * itemsPerPage, filteredLicenses.length)}</span> arası gösteriliyor
+                    </p>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage(prev => prev - 1)}
+                        >
+                            <ChevronLeft className="w-4 h-4 mr-1" /> Önceki
+                        </Button>
+                        <div className="flex items-center px-4 text-sm font-medium">
+                            Sayfa {currentPage} / {totalPages}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={currentPage === totalPages}
+                            onClick={() => setCurrentPage(prev => prev + 1)}
+                        >
+                            Sonraki <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* Create Modal */}
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

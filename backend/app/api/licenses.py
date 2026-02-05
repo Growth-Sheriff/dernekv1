@@ -168,7 +168,7 @@ def list_all_licenses(
     if user_role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Yetersiz yetki")
     
-    licenses = session.exec(select(License)).all()
+    licenses = session.exec(select(License).order_by(License.created_at.desc())).all()
     result = []
     for lic in licenses:
         tenant = session.get(Tenant, lic.tenant_id) if lic.tenant_id else None

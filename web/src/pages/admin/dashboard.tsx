@@ -33,7 +33,7 @@ export default function AdminDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <StatCard title="Toplam Dernek" value={tenants.length} icon={Building2} color="bg-blue-500" />
-                <StatCard title="Aktif Lisans" value={licenses.filter(l => l.status === 'ACTIVE').length} icon={Key} color="bg-green-500" />
+                <StatCard title="Aktif Lisans" value={licenses.filter(l => l.is_active).length} icon={Key} color="bg-green-500" />
                 <StatCard title="Toplam Kullanıcı" value="52,140" icon={Users} color="bg-indigo-500" />
                 <StatCard title="Aylık Ciro" value="₺124,500" icon={TrendingUp} color="bg-orange-500" />
             </div>
@@ -50,7 +50,7 @@ export default function AdminDashboard() {
                             <p className="text-center text-slate-500">Kayıt bulunamadı.</p>
                         ) : (
                             <div className="space-y-4">
-                                {tenants.map(tenant => (
+                                {tenants.slice(0, 5).map(tenant => (
                                     <div key={tenant.id} className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center font-bold text-slate-600">
@@ -87,8 +87,8 @@ export default function AdminDashboard() {
                                             <p className="text-xs text-slate-500">Bitiş: {new Date(lic.end_date).toLocaleDateString()}</p>
                                         </div>
                                         <div className="text-right">
-                                            <p className="font-bold text-slate-700">₺{lic.price}</p>
-                                            <p className="text-xs text-slate-500">{lic.type}</p>
+                                            <p className="font-bold text-slate-700">{(lic as any).price || 0} TL</p>
+                                            <p className="text-xs text-slate-500">{lic.license_type}</p>
                                         </div>
                                     </div>
                                 ))}

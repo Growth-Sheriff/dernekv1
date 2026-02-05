@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 
-const API_BASE_URL = 'http://157.90.154.48:8000';
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'http://157.90.154.48:8000';
 
 export function LicenseUpgradePage() {
     const { license, updateLicense, token } = useAuthStore();

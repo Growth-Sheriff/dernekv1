@@ -9,7 +9,9 @@ import {
 } from 'lucide-react';
 import { superAdminStore } from './login';
 
-const API_URL = 'http://157.90.154.48:8000';
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : 'http://157.90.154.48:8000';
 
 interface Tenant {
     id: string;
@@ -49,6 +51,15 @@ export default function SuperAdminDashboard() {
     const [showLicenseModal, setShowLicenseModal] = useState(false);
     const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
     const [editingLicense, setEditingLicense] = useState<License | null>(null);
+
+    // Pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
+    // Reset page on tab change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [activeTab]);
 
     const user = superAdminStore.getUser();
     const token = superAdminStore.getToken();
@@ -684,7 +695,7 @@ export default function SuperAdminDashboard() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-700">
-                                        {tenants.map((tenant) => (
+                                        {tenants.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((tenant) => (
                                             <tr key={tenant.id} className="hover:bg-slate-700/30 transition-colors">
                                                 <td className="py-4 px-6">
                                                     <div className="flex items-center gap-3">
@@ -721,6 +732,33 @@ export default function SuperAdminDashboard() {
                                         )}
                                     </tbody>
                                 </table>
+
+                                {tenants.length > itemsPerPage && (
+                                    <div className="p-4 border-t border-slate-700 flex items-center justify-between">
+                                        <p className="text-slate-400 text-sm">
+                                            Toplam {tenants.length} kayıttan {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, tenants.length)} arası
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button
+                                                disabled={currentPage === 1}
+                                                onClick={() => setCurrentPage(prev => prev - 1)}
+                                                className="px-4 py-2 bg-slate-700 text-white rounded-lg disabled:opacity-50 hover:bg-slate-600"
+                                            >
+                                                Önceki
+                                            </button>
+                                            <span className="px-4 py-2 text-slate-300">
+                                                Sayfa {currentPage} / {Math.ceil(tenants.length / itemsPerPage)}
+                                            </span>
+                                            <button
+                                                disabled={currentPage >= Math.ceil(tenants.length / itemsPerPage)}
+                                                onClick={() => setCurrentPage(prev => prev + 1)}
+                                                className="px-4 py-2 bg-slate-700 text-white rounded-lg disabled:opacity-50 hover:bg-slate-600"
+                                            >
+                                                Sonraki
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -740,7 +778,7 @@ export default function SuperAdminDashboard() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-700">
-                                        {licenses.map((license) => {
+                                        {licenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((license) => {
                                             const tenant = tenants.find(t => t.id === license.tenant_id);
                                             return (
                                                 <tr key={license.id} className="hover:bg-slate-700/30 transition-colors">
@@ -766,10 +804,10 @@ export default function SuperAdminDashboard() {
                                                     </td>
                                                     <td className="py-4 px-6">
                                                         <div className="flex gap-1">
-                                                            {license.desktop_enabled && <Monitor className="w-4 h-4 text-green-400" title="Desktop" />}
-                                                            {license.web_enabled && <Globe className="w-4 h-4 text-blue-400" title="Web" />}
-                                                            {license.mobile_enabled && <Smartphone className="w-4 h-4 text-yellow-400" title="Mobil" />}
-                                                            {license.sync_enabled && <RefreshCw className="w-4 h-4 text-purple-400" title="Sync" />}
+                                                            {license.desktop_enabled && <Monitor className="w-4 h-4 text-green-400" />}
+                                                            {license.web_enabled && <Globe className="w-4 h-4 text-blue-400" />}
+                                                            {license.mobile_enabled && <Smartphone className="w-4 h-4 text-yellow-400" />}
+                                                            {license.sync_enabled && <RefreshCw className="w-4 h-4 text-purple-400" />}
                                                         </div>
                                                     </td>
                                                     <td className="py-4 px-6">
@@ -807,6 +845,33 @@ export default function SuperAdminDashboard() {
                                         )}
                                     </tbody>
                                 </table>
+
+                                {licenses.length > itemsPerPage && (
+                                    <div className="p-4 border-t border-slate-700 flex items-center justify-between">
+                                        <p className="text-slate-400 text-sm">
+                                            Toplam {licenses.length} kayıttan {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, licenses.length)} arası
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <button
+                                                disabled={currentPage === 1}
+                                                onClick={() => setCurrentPage(prev => prev - 1)}
+                                                className="px-4 py-2 bg-slate-700 text-white rounded-lg disabled:opacity-50 hover:bg-slate-600"
+                                            >
+                                                Önceki
+                                            </button>
+                                            <span className="px-4 py-2 text-slate-300">
+                                                Sayfa {currentPage} / {Math.ceil(licenses.length / itemsPerPage)}
+                                            </span>
+                                            <button
+                                                disabled={currentPage >= Math.ceil(licenses.length / itemsPerPage)}
+                                                onClick={() => setCurrentPage(prev => prev + 1)}
+                                                className="px-4 py-2 bg-slate-700 text-white rounded-lg disabled:opacity-50 hover:bg-slate-600"
+                                            >
+                                                Sonraki
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </>

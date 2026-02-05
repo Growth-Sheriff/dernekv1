@@ -2,12 +2,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.core.db import get_session
-from app.models.base import Member, User
+from app.models.base import Uye, User
+from app.models.base import AidatTakip as Aidat
 from app.api.auth import get_current_user
 
 router = APIRouter()
 
-@router.get("/", response_model=List[Member])
+@router.get("/", response_model=List[Uye])
 def read_members(
     skip: int = 0, 
     limit: int = 100, 
@@ -19,16 +20,16 @@ def read_members(
         return [] # Veya tümünü göster (Süper Admin ise)
         
     members = session.exec(
-        select(Member)
-        .where(Member.tenant_id == current_user.tenant_id)
+        select(Uye)
+        .where(Uye.tenant_id == current_user.tenant_id)
         .offset(skip)
         .limit(limit)
     ).all()
     return members
 
-@router.post("/", response_model=Member)
+@router.post("/", response_model=Uye)
 def create_member(
-    member: Member, 
+    member: Uye, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
@@ -41,7 +42,7 @@ def create_member(
     session.refresh(member)
     return member
 
-from app.models.base import Aidat
+# from app.models.base import Aidat
 from sqlalchemy import func
 from fastapi import Body
 

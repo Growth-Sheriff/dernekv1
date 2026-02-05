@@ -18,7 +18,10 @@ export interface DeviceInfo {
     user_agent?: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://157.90.154.48:8000/api/v1';
+const API_BASE_URL = ((import.meta as any).env?.VITE_API_URL) ||
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:8000/api/v1'
+        : 'http://157.90.154.48:8000/api/v1');
 
 class DeviceFingerprintService {
     private deviceInfo: DeviceInfo | null = null;

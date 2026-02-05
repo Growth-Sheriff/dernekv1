@@ -2,7 +2,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.core.db import get_session
-from app.models.base import User, Tenant, Member, Transaction, License, UserRole
+from app.models.base import User, Tenant, Uye, Gelir, Gider, License, UserRole
 from app.api.auth import get_current_user
 
 router = APIRouter()
@@ -26,8 +26,9 @@ def export_database(
         # Her şeyi al
         tenants = session.exec(select(Tenant)).all()
         users = session.exec(select(User)).all()
-        members = session.exec(select(Member)).all()
-        transactions = session.exec(select(Transaction)).all()
+        members = session.exec(select(Uye)).all()
+        gelirler = session.exec(select(Gelir)).all()
+        giderler = session.exec(select(Gider)).all()
         licenses = session.exec(select(License)).all()
     else:
         # Sadece kendi tenantını al
@@ -37,8 +38,9 @@ def export_database(
             
         tenants = session.exec(select(Tenant).where(Tenant.id == tenant_id)).all()
         users = session.exec(select(User).where(User.tenant_id == tenant_id)).all()
-        members = session.exec(select(Member).where(Member.tenant_id == tenant_id)).all()
-        transactions = session.exec(select(Transaction).where(Transaction.tenant_id == tenant_id)).all()
+        members = session.exec(select(Uye).where(Uye.tenant_id == tenant_id)).all()
+        gelirler = session.exec(select(Gelir).where(Gelir.tenant_id == tenant_id)).all()
+        giderler = session.exec(select(Gider).where(Gider.tenant_id == tenant_id)).all()
         licenses = session.exec(select(License).where(License.tenant_id == tenant_id)).all()
 
     return {
@@ -51,7 +53,8 @@ def export_database(
             "tenants": [t.model_dump() for t in tenants],
             "users": [u.model_dump() for u in users],
             "members": [m.model_dump() for m in members],
-            "transactions": [t.model_dump() for t in transactions],
+            "gelirler": [g.model_dump() for g in gelirler],
+            "giderler": [g.model_dump() for g in giderler],
             "licenses": [l.model_dump() for l in licenses],
         }
     }

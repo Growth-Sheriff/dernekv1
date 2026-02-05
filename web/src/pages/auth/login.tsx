@@ -7,7 +7,9 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/store/authStore';
 import { useLicenseStore } from '@/store/licenseStore';
 
-const API_URL = 'http://157.90.154.48:8000';
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'http://157.90.154.48:8000';
 
 const loginSchema = z.object({
   mode: z.enum(['LOCAL', 'ONLINE', 'HYBRID']),

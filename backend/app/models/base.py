@@ -295,6 +295,35 @@ class Virman(SQLModel, table=True):
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
+# --- ETKINLIK (EVENT) ---
+class Etkinlik(SQLModel, table=True):
+    __tablename__ = "etkinlik"
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    tenant_id: str = Field(index=True)
+    ad: Optional[str] = None
+    aciklama: Optional[str] = None
+    tarih: Optional[str] = None
+    konum: Optional[str] = None
+    is_active: bool = Field(default=True)
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+# --- TRANSACTION (Mali Islem) ---
+class Transaction(SQLModel, table=True):
+    __tablename__ = "transactions"
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    tenant_id: str = Field(index=True)
+    type: TransactionType = Field(index=True)
+    amount: float = Field(default=0.0)
+    currency: str = Field(default="TRY")
+    description: Optional[str] = None
+    date: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    category_id: Optional[str] = None
+    account_id: Optional[str] = None
+    member_id: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
 # --- SYNC CHANGES (for offline/online sync) ---
 class SyncChange(SQLModel, table=True):
     __tablename__ = "sync_changes"

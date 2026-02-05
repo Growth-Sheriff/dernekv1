@@ -63,7 +63,7 @@ async def list_tenants(
     current_user: User = Depends(require_super_admin)
 ):
     """List all tenants"""
-    tenants = session.exec(select(Tenant)).all()
+    tenants = session.exec(select(Tenant).order_by(Tenant.created_at.desc())).all()
     return [
         TenantResponse(
             id=str(t.id),
