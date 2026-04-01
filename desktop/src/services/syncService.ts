@@ -1,13 +1,14 @@
 /**
- * Sync Service v2 - Tam Senkronizasyon Sistemi
+ * Sync Service v3 - Sunucu Uyumlu Tek Endpoint Senkronizasyon
  * 
  * Desktop ↔ Backend arasında çift yönlü veri senkronizasyonu.
+ * Sunucunun tek POST /sync/sync endpoint'ini kullanır.
  * HYBRID lisans modunda çalışır.
  */
 
 import { invoke } from '@tauri-apps/api/core';
 
-const API_BASE_URL = 'http://157.90.154.48:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1';
 
 export interface SyncableRecord {
     id: string;
@@ -18,6 +19,35 @@ export interface SyncableRecord {
 export type SyncAction = 'create' | 'update' | 'delete';
 export type SyncTableName = 'uyeler' | 'gelirler' | 'giderler' | 'kasalar' | 'aidatlar' | 'aidat_takip';
 
+/** Sunucu SyncChangeItem formatı */
+interface ServerSyncChange {
+    table: string;
+    id: string;
+    operation: string; // insert | update | delete
+    data: Record<string, any>;
+    version: number;
+    changed_at: string;
+}
+
+/** Sunucu SyncRequest formatı */
+interface ServerSyncRequest {
+    tenant_id: string;
+    device_id?: string;
+    client_version?: string;
+    last_sync_at?: string;
+    changes: ServerSyncChange[];
+}
+
+/** Sunucu SyncResponse formatı */
+interface ServerSyncResponse {
+    status: string; // ok | partial | error
+    server_time: string;
+    applied: Array<{ table: string; id: string; status: string; reason?: string }>;
+    rejected: Array<{ table: string; id: string; status: string; reason?: string }>;
+    conflicts: Array<{ table: string; id: string; status: string; reason?: string }>;
+    changes: ServerSyncChange[]; // Server → Client delta
+}
+
 interface SyncStats {
     pushed: number;
     pulled: number;
@@ -26,7 +56,7 @@ interface SyncStats {
 }
 
 /**
- * Sync Service Class
+ * Sync Service Class - Sunucunun tek POST /sync/sync endpoint'ini kullanır
  */
 class SyncService {
     private isOnline: boolean = navigator.onLine;
@@ -35,9 +65,10 @@ class SyncService {
     private licenseMode: 'local' | 'hybrid' | 'online' = 'local';
     private syncInterval: NodeJS.Timeout | null = null;
     private stats: SyncStats = { pushed: 0, pulled: 0, failed: 0, lastSync: null };
+    private lastSyncAt: string | null = null;
+    private deviceId: string | null = null;
 
     constructor() {
-        // Online/offline listener
         window.addEventListener('online', () => {
             this.isOnline = true;
             console.log('📶 Online - Senkronizasyon başlıyor...');
@@ -48,6 +79,20 @@ class SyncService {
             this.isOnline = false;
             console.log('📴 Offline - Değişiklikler kuyruğa alınacak');
         });
+
+        // Önceki sync zamanını localStorage'dan al
+        this.lastSyncAt = localStorage.getItem('bader_last_sync_at');
+
+        // Device ID al
+        this.initDeviceId();
+    }
+
+    private async initDeviceId() {
+        try {
+            this.deviceId = await invoke<string>('get_device_id');
+        } catch {
+            this.deviceId = 'desktop-unknown';
+        }
     }
 
     /**
@@ -58,18 +103,14 @@ class SyncService {
         this.licenseMode = licenseMode;
         console.log(`🔧 SyncService: mode=${licenseMode}, token=${token ? 'set' : 'missing'}`);
 
-        // Önceki interval'ı temizle
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
         }
 
-        // HYBRID modda otomatik sync başlat
         if (licenseMode === 'hybrid' && token) {
-            // İlk sync hemen yap
             setTimeout(() => this.fullSync(), 2000);
 
-            // Her 2 dakikada sync tekrarla
             this.syncInterval = setInterval(() => {
                 this.fullSync();
             }, 2 * 60 * 1000);
@@ -102,7 +143,95 @@ class SyncService {
     }
 
     /**
-     * Tam senkronizasyon (push + pull)
+     * SyncAction → sunucu operation formatına dönüştür
+     */
+    private actionToOperation(action: SyncAction): string {
+        switch (action) {
+            case 'create': return 'insert';
+            case 'update': return 'update';
+            case 'delete': return 'delete';
+            default: return 'update';
+        }
+    }
+
+    /**
+     * Tek sync çağrısı — sunucunun POST /sync/sync endpoint'ini kullanır
+     * Hem push (client→server) hem pull (server→client) tek seferde yapılır.
+     */
+    private async executeSyncRequest(
+        tenantId: string,
+        changes: ServerSyncChange[]
+    ): Promise<ServerSyncResponse | null> {
+        const syncRequest: ServerSyncRequest = {
+            tenant_id: tenantId,
+            device_id: this.deviceId || 'desktop-unknown',
+            client_version: '3.0.0',
+            last_sync_at: this.lastSyncAt || undefined,
+            changes
+        };
+
+        try {
+            console.log(`📡 Sync isteği: ${changes.length} değişiklik gönderiliyor...`);
+
+            const response = await fetch(`${API_BASE_URL}/sync/sync`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify(syncRequest)
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error(`❌ Sync API hatası: ${response.status} - ${text}`);
+                return null;
+            }
+
+            const result: ServerSyncResponse = await response.json();
+            console.log(`📡 Sync yanıtı: status=${result.status}, applied=${result.applied.length}, rejected=${result.rejected.length}, server_changes=${result.changes.length}`);
+
+            // Başarılı sync zamanını kaydet
+            if (result.server_time) {
+                this.lastSyncAt = result.server_time;
+                localStorage.setItem('bader_last_sync_at', result.server_time);
+            }
+
+            return result;
+        } catch (error) {
+            console.error('❌ Sync isteği başarısız:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Sunucudan gelen değişiklikleri local DB'ye uygula
+     */
+    private async applyServerChanges(tenantId: string, serverChanges: ServerSyncChange[]): Promise<number> {
+        if (!serverChanges || serverChanges.length === 0) return 0;
+
+        const localChanges = serverChanges.map(sc => ({
+            table_name: sc.table,
+            record_id: sc.id,
+            action: sc.operation === 'insert' ? 'create' : sc.operation === 'delete' ? 'delete' : 'update',
+            data: { ...sc.data, id: sc.id, tenant_id: tenantId }
+        }));
+
+        try {
+            const applied = await invoke<number>('apply_sync_changes', {
+                tenantIdParam: tenantId,
+                changes: localChanges
+            });
+            console.log(`📥 ${applied} kayıt local DB'ye uygulandı`);
+            return applied;
+        } catch (e) {
+            console.error('apply_sync_changes hatası:', e);
+            return 0;
+        }
+    }
+
+    /**
+     * Tam senkronizasyon (push + pull tek endpoint)
      */
     async fullSync(): Promise<{ pushed: number; pulled: number; failed: number }> {
         if (!this.shouldSync() || this.isSyncing) {
@@ -119,26 +248,77 @@ class SyncService {
                 return { pushed: 0, pulled: 0, failed: 0 };
             }
 
-            // 1. Önce pending changes'ları push et
-            const pushResult = await this.pushPendingChanges(tenantId);
+            // 1. Bekleyen local değişiklikleri topla
+            const localChanges = await this.collectPendingChanges(tenantId);
 
-            // 2. Sonra sunucudan pull et
-            const pullResult = await this.pullFromServer(tenantId);
+            // 2. Tek sync çağrısı yap (push + pull birlikte)
+            const result = await this.executeSyncRequest(tenantId, localChanges);
+
+            if (!result) {
+                return { pushed: 0, pulled: 0, failed: localChanges.length };
+            }
+
+            // 3. Başarılı push'ları işaretle
+            const appliedIds = result.applied.map(a => a.id);
+            if (appliedIds.length > 0) {
+                try {
+                    await invoke('mark_changes_synced', {
+                        tenantIdParam: tenantId,
+                        changeIds: appliedIds
+                    });
+                } catch (e) {
+                    console.warn('mark_changes_synced hatası:', e);
+                }
+            }
+
+            // 4. Server'dan gelen değişiklikleri local DB'ye uygula
+            const pulled = await this.applyServerChanges(tenantId, result.changes);
 
             this.stats = {
-                pushed: pushResult.success,
-                pulled: pullResult.counts ? Object.values(pullResult.counts).reduce((a, b) => a + b, 0) : 0,
-                failed: pushResult.failed,
+                pushed: result.applied.length,
+                pulled,
+                failed: result.rejected.length,
                 lastSync: new Date().toISOString()
             };
 
-            console.log(`✅ Sync tamamlandı: ${this.stats.pushed} pushed, ${this.stats.pulled} pulled`);
+            console.log(`✅ Sync tamamlandı: ${this.stats.pushed} pushed, ${this.stats.pulled} pulled, ${this.stats.failed} rejected`);
             return this.stats;
         } catch (error) {
             console.error('❌ Sync hatası:', error);
             return { pushed: 0, pulled: 0, failed: 0 };
         } finally {
             this.isSyncing = false;
+        }
+    }
+
+    /**
+     * Bekleyen local değişiklikleri ServerSyncChange formatına dönüştür
+     */
+    private async collectPendingChanges(tenantId: string): Promise<ServerSyncChange[]> {
+        try {
+            const changes = await invoke<any[]>('get_pending_sync_changes', { tenantIdParam: tenantId });
+
+            if (!changes || changes.length === 0) {
+                console.log('📭 Bekleyen değişiklik yok');
+                return [];
+            }
+
+            console.log(`📤 ${changes.length} bekleyen değişiklik bulundu`);
+
+            return changes.map(change => {
+                const data = typeof change.data === 'string' ? JSON.parse(change.data) : (change.data || {});
+                return {
+                    table: change.table_name,
+                    id: change.record_id,
+                    operation: this.actionToOperation(change.action as SyncAction),
+                    data: { ...data, tenant_id: tenantId },
+                    version: data.version || 0,
+                    changed_at: change.local_updated_at || new Date().toISOString()
+                };
+            });
+        } catch (error) {
+            console.error('Pending changes alınamadı:', error);
+            return [];
         }
     }
 
@@ -165,7 +345,6 @@ class SyncService {
         action: SyncAction,
         data: SyncableRecord
     ): Promise<void> {
-        // Local DB'ye sync_changes tablosuna kaydet
         try {
             await invoke('queue_sync_change', {
                 tenantIdParam: tenantId,
@@ -182,257 +361,9 @@ class SyncService {
             console.error('Sync kuyruğuna ekleme hatası:', error);
         }
 
-        // Eğer online ve sync modundaysak hemen gönder
+        // Online ve hybrid moddaysak hemen sync yap
         if (this.shouldSync()) {
-            await this.syncSingleRecord(tenantId, tableName, action, data);
-        }
-    }
-
-    /**
-     * Tek bir kaydı sunucuya senkronize et
-     */
-    private async syncSingleRecord(
-        tenantId: string,
-        tableName: SyncTableName,
-        action: SyncAction,
-        data: SyncableRecord
-    ): Promise<boolean> {
-        try {
-            const endpoint = this.getEndpoint(tableName);
-
-            console.log(`📤 Sync: ${tableName}/${action} -> ${endpoint}`);
-
-            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
-                },
-                body: JSON.stringify(this.transformData(tableName, data, action))
-            });
-
-            if (response.ok) {
-                // Sync başarılı, işaretle
-                try {
-                    await invoke('mark_changes_synced', {
-                        tenantIdParam: tenantId,
-                        changeIds: [data.id]
-                    });
-                } catch (e) {
-                    console.warn('mark_changes_synced hatası:', e);
-                }
-                console.log(`✅ Sync başarılı: ${tableName}/${data.id}`);
-                return true;
-            } else {
-                const text = await response.text();
-                console.error(`❌ Sync hatası: ${response.status} - ${text}`);
-                return false;
-            }
-        } catch (error) {
-            console.error('Sync hatası:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Backend endpoint'ini belirle
-     */
-    private getEndpoint(table: SyncTableName): string {
-        const endpoints: Record<SyncTableName, string> = {
-            'uyeler': '/sync/uye',
-            'gelirler': '/sync/gelir',
-            'giderler': '/sync/gider',
-            'kasalar': '/sync/kasa',
-            'aidatlar': '/sync/aidat',
-            'aidat_takip': '/sync/aidat'
-        };
-        return endpoints[table] || `/sync/${table}`;
-    }
-
-    /**
-     * Veriyi backend formatına dönüştür
-     */
-    private transformData(table: SyncTableName, data: SyncableRecord, action: SyncAction): any {
-        const now = new Date().toISOString();
-
-        // Temel alanları ekle
-        const baseData: any = {
-            ...data,
-            created_at: data.created_at || now,
-            updated_at: now,
-            is_active: action === 'delete' ? 0 : 1
-        };
-
-        // Tablo bazında dönüşüm
-        switch (table) {
-            case 'uyeler':
-                return {
-                    ...baseData,
-                    ad: baseData.ad || '',
-                    soyad: baseData.soyad || '',
-                    uye_no: baseData.uye_no || '0',
-                    tc_no: baseData.tc_no || '',
-                    uye_turu: baseData.uye_turu || baseData.uyelik_tipi || 'Asil',
-                    durum: action === 'delete' ? 'PASIF' : (baseData.durum || 'AKTIF'),
-                    kayit_tarihi: baseData.giris_tarihi || baseData.kayit_tarihi || now.split('T')[0]
-                };
-            case 'gelirler':
-                return {
-                    ...baseData,
-                    tutar: parseFloat(baseData.tutar) || 0,
-                    tarih: baseData.tarih || now.split('T')[0],
-                    aciklama: baseData.aciklama || ''
-                };
-            case 'giderler':
-                return {
-                    ...baseData,
-                    tutar: parseFloat(baseData.tutar) || 0,
-                    tarih: baseData.tarih || now.split('T')[0],
-                    aciklama: baseData.aciklama || ''
-                };
-            case 'kasalar':
-                return {
-                    ...baseData,
-                    ad: baseData.ad || baseData.kasa_adi || 'Kasa',
-                    bakiye: parseFloat(baseData.bakiye) || 0,
-                    para_birimi: baseData.para_birimi || 'TRY'
-                };
-            case 'aidatlar':
-            case 'aidat_takip':
-                return {
-                    ...baseData,
-                    uye_id: baseData.uye_id || '',
-                    yil: parseInt(baseData.yil) || new Date().getFullYear(),
-                    ay: parseInt(baseData.ay) || 1,
-                    tutar: parseFloat(baseData.tutar) || 0,
-                    odendi: baseData.odendi ? 1 : 0
-                };
-            default:
-                return baseData;
-        }
-    }
-
-    /**
-     * Bekleyen tüm değişiklikleri push et
-     */
-    async pushPendingChanges(tenantId: string): Promise<{ success: number; failed: number }> {
-        let success = 0;
-        let failed = 0;
-
-        try {
-            // Bekleyen değişiklikleri al
-            const changes = await invoke<any[]>('get_pending_sync_changes', { tenantIdParam: tenantId });
-
-            if (!changes || changes.length === 0) {
-                console.log('📭 Bekleyen değişiklik yok');
-                return { success: 0, failed: 0 };
-            }
-
-            console.log(`📤 ${changes.length} değişiklik push ediliyor...`);
-
-            for (const change of changes) {
-                const data = typeof change.data === 'string' ? JSON.parse(change.data) : change.data;
-
-                const synced = await this.syncSingleRecord(
-                    tenantId,
-                    change.table_name as SyncTableName,
-                    change.action as SyncAction,
-                    { id: change.record_id, tenant_id: tenantId, ...data }
-                );
-
-                if (synced) {
-                    success++;
-                } else {
-                    failed++;
-                }
-            }
-
-            console.log(`📤 Push tamamlandı: ${success} başarılı, ${failed} başarısız`);
-        } catch (error) {
-            console.error('Push hatası:', error);
-        }
-
-        return { success, failed };
-    }
-
-    /**
-     * Sunucudan veri çek ve local DB'ye kaydet
-     */
-    async pullFromServer(tenantId: string): Promise<{ success: boolean; counts: Record<string, number> }> {
-        if (!this.shouldSync()) {
-            return { success: false, counts: {} };
-        }
-
-        try {
-            console.log('📥 Sunucudan veri çekiliyor...');
-
-            const response = await fetch(`${API_BASE_URL}/sync/pull/${tenantId}`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${this.token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                console.error('❌ Pull hatası:', response.status, response.statusText);
-                return { success: false, counts: {} };
-            }
-
-            const result = await response.json();
-            const data = result.data || result;
-            const counts: Record<string, number> = {};
-            const changes: any[] = [];
-
-            // Veriyi change formatına dönüştür
-            const tables: SyncTableName[] = ['uyeler', 'gelirler', 'giderler', 'kasalar'];
-
-            for (const table of tables) {
-                const items = data[table];
-                if (items && Array.isArray(items)) {
-                    counts[table] = items.length;
-                    for (const item of items) {
-                        changes.push({
-                            table_name: table,
-                            record_id: item.id,
-                            action: 'update',
-                            data: item
-                        });
-                    }
-                }
-            }
-
-            // Aidatlar özel işlem
-            if (data.aidatlar && Array.isArray(data.aidatlar)) {
-                counts.aidatlar = data.aidatlar.length;
-                for (const aidat of data.aidatlar) {
-                    changes.push({
-                        table_name: 'aidat_takip',
-                        record_id: aidat.id,
-                        action: 'update',
-                        data: aidat
-                    });
-                }
-            }
-
-            // Tüm değişiklikleri tek seferde uygula
-            if (changes.length > 0) {
-                try {
-                    const applied = await invoke<number>('apply_sync_changes', {
-                        tenantIdParam: tenantId,
-                        changes: changes
-                    });
-                    console.log(`📥 ${applied} kayıt local DB'ye uygulandı`);
-                } catch (e) {
-                    console.error('apply_sync_changes hatası:', e);
-                }
-            }
-
-            console.log('📥 Pull tamamlandı:', counts);
-            return { success: true, counts };
-        } catch (error) {
-            console.error('❌ Pull hatası:', error);
-            return { success: false, counts: {} };
+            await this.fullSync();
         }
     }
 
@@ -450,7 +381,6 @@ class SyncService {
         const counts: Record<string, number> = {};
 
         try {
-            // Tüm verileri local DB'den al
             const uyeler = await invoke<any[]>('get_uyeler', { tenantIdParam: tenantId });
             const gelirler = await invoke<any[]>('get_gelirler', { tenantIdParam: tenantId, yil: new Date().getFullYear() });
             const giderler = await invoke<any[]>('get_giderler', { tenantIdParam: tenantId, yil: new Date().getFullYear() });
@@ -458,37 +388,47 @@ class SyncService {
 
             console.log(`📊 Bulundu: ${uyeler?.length || 0} üye, ${gelirler?.length || 0} gelir, ${giderler?.length || 0} gider, ${kasalar?.length || 0} kasa`);
 
-            // Toplu push endpoint'ine gönder
-            const pushData = {
-                tenant_id: tenantId,
-                uyeler: (uyeler || []).map(u => this.transformData('uyeler', { ...u, tenant_id: tenantId }, 'create')),
-                gelirler: (gelirler || []).map(g => this.transformData('gelirler', { ...g, tenant_id: tenantId }, 'create')),
-                giderler: (giderler || []).map(g => this.transformData('giderler', { ...g, tenant_id: tenantId }, 'create')),
-                kasalar: (kasalar || []).map(k => this.transformData('kasalar', { ...k, tenant_id: tenantId }, 'create')),
-                aidatlar: []
+            // Tüm verileri ServerSyncChange formatına dönüştür
+            const changes: ServerSyncChange[] = [];
+            const now = new Date().toISOString();
+
+            const addRecords = (records: any[] | null, table: string) => {
+                if (!records) return;
+                for (const rec of records) {
+                    changes.push({
+                        table,
+                        id: rec.id,
+                        operation: 'insert',
+                        data: { ...rec, tenant_id: tenantId },
+                        version: rec.version || 0,
+                        changed_at: rec.updated_at || now
+                    });
+                }
             };
 
-            const response = await fetch(`${API_BASE_URL}/sync/push`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.token}`
-                },
-                body: JSON.stringify(pushData)
-            });
+            addRecords(uyeler, 'uyeler');
+            addRecords(gelirler, 'gelirler');
+            addRecords(giderler, 'giderler');
+            addRecords(kasalar, 'kasalar');
 
-            if (response.ok) {
-                const result = await response.json();
-                counts.uyeler = pushData.uyeler.length;
-                counts.gelirler = pushData.gelirler.length;
-                counts.giderler = pushData.giderler.length;
-                counts.kasalar = pushData.kasalar.length;
+            // Tek sync çağrısı
+            const result = await this.executeSyncRequest(tenantId, changes);
 
-                console.log('✅ İlk senkronizasyon tamamlandı:', result);
+            if (result && result.status !== 'error') {
+                counts.uyeler = uyeler?.length || 0;
+                counts.gelirler = gelirler?.length || 0;
+                counts.giderler = giderler?.length || 0;
+                counts.kasalar = kasalar?.length || 0;
+
+                // Server'dan gelen değişiklikleri de uygula
+                if (result.changes.length > 0) {
+                    await this.applyServerChanges(tenantId, result.changes);
+                }
+
+                console.log('✅ İlk senkronizasyon tamamlandı:', counts);
                 return { success: true, counts };
             } else {
-                const text = await response.text();
-                console.error('❌ İlk sync hatası:', response.status, text);
+                console.error('❌ İlk sync hatası');
                 return { success: false, counts: {} };
             }
         } catch (error) {

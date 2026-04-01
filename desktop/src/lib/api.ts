@@ -5,9 +5,8 @@
 
 import { fetch } from '@tauri-apps/plugin-http';
 
-// API Base URL - Production'da değiştirilecek
-// API Base URL - Production
-const API_BASE_URL = 'http://157.90.154.48:8000/api/v1';
+// API Base URL - .env dosyasından okunur
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1';
 
 // API Response tipi
 interface ApiResponse<T> {

@@ -44,7 +44,7 @@ ssh bader-app "cd /path/to/baderone && git pull && docker restart bader_frontend
 
 ## Sunucu Bilgileri
 - **SSH Alias:** `bader-app`
-- **IP:** 157.90.154.48
+- **IP:** 35.195.123.84
 - **Backend Container:** `bader_backend`
 - **Frontend Container:** `bader_frontend`
 - **Backend Port:** 8000

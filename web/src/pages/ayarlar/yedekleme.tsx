@@ -37,7 +37,8 @@ export const AyarlarYedeklemePage: React.FC = () => {
       // Doğrudan indirme başlatır. Token'ı query param veya header ile (fetch ile blob) göndermek lazım.
       // fetch ile yapıp blob olarak indirelim.
 
-      const response = await fetch('http://localhost:8000/api/v1/backup/export', {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1';
+      const response = await fetch(`${apiBase}/backup/export`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`

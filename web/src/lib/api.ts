@@ -6,7 +6,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 
 // API Base URL - Production'da değiştirilecek
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.bader.app/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1';
 
 // API Response tipi
 interface ApiResponse<T> {

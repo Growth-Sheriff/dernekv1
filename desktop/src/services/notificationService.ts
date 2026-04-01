@@ -4,7 +4,7 @@
  * Super Admin'den gelen bildirimleri almak ve online durumunu bildirmek için.
  */
 
-const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) || 'http://157.90.154.48:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1';
 
 export interface Notification {
     id: string;

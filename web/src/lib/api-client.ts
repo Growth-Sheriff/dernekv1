@@ -13,9 +13,9 @@ const uuidv4 = () => {
   });
 };
 
-const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+const API_BASE_URL = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:8000/api/v1'
-  : 'http://157.90.154.48:8000/api/v1';
+  : 'http://35.195.123.84:8000/api/v1');
 
 // MOCK DATA GENERATORS
 const mockUyeler = Array.from({ length: 25 }).map((_, i) => ({
