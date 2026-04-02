@@ -140,6 +140,20 @@ export const KasalarPage: React.FC = () => {
         });
       }
       
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        if (editingKasa) {
+          const kasalarList = await invoke<any[]>('get_kasalar', { tenantIdParam: tenant.id });
+          const updated = kasalarList?.find((k: any) => k.id === editingKasa.id);
+          if (updated) await syncService.queueChange(tenant.id, 'kasalar', 'update', updated);
+        } else {
+          const kasalarList = await invoke<any[]>('get_kasalar', { tenantIdParam: tenant.id });
+          const created = kasalarList?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
+          if (created) await syncService.queueChange(tenant.id, 'kasalar', 'create', created);
+        }
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       setShowModal(false);
       setEditingKasa(null);
       setFormData({ kasa_adi: '', para_birimi: 'TRY', kasa_tipi: 'Nakit', banka_adi: '', iban: '', sube: '', hesap_no: '' });
@@ -163,6 +177,12 @@ export const KasalarPage: React.FC = () => {
         tenantIdParam: tenant.id,
         id: kasaId,
       });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        await syncService.queueChange(tenant.id, 'kasalar', 'delete', { id: kasaId, tenant_id: tenant.id });
+      } catch (e) { console.warn('Sync queue hatası:', e); }
       
       await loadKasalar();
       await loadOzet();

@@ -135,8 +135,8 @@ const COMMAND_MAP: Record<string, { method: string, url: string }> = {
   'delete_virman': { method: 'DELETE', url: '/virmanlar/:id' },
 
   // Backup / Sync / License
-  'sync_push': { method: 'POST', url: '/sync/push' },
-  'sync_pull': { method: 'GET', url: '/sync/pull/:tenantId' },
+  'sync': { method: 'POST', url: '/sync/sync' },
+  'get_sync_status': { method: 'GET', url: '/sync/status' },
   'check_license': { method: 'GET', url: '/licenses/my-license' },
   'upgrade_license': { method: 'POST', url: '/licenses/upgrade' },
 

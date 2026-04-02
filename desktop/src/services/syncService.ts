@@ -16,7 +16,7 @@ export interface SyncableRecord {
 }
 
 export type SyncAction = 'create' | 'update' | 'delete';
-export type SyncTableName = 'uyeler' | 'gelirler' | 'giderler' | 'kasalar' | 'aidatlar' | 'aidat_takip';
+export type SyncTableName = 'uyeler' | 'gelirler' | 'giderler' | 'kasalar' | 'aidat_takip' | 'virmanlar' | 'gelir_turleri' | 'gider_turleri' | 'etkinlikler';
 
 /** Sunucu SyncChangeItem formatı */
 interface ServerSyncChange {
@@ -380,12 +380,20 @@ class SyncService {
         const counts: Record<string, number> = {};
 
         try {
-            const uyeler = await invoke<any[]>('get_uyeler', { tenantIdParam: tenantId });
-            const gelirler = await invoke<any[]>('get_gelirler', { tenantIdParam: tenantId, yil: new Date().getFullYear() });
-            const giderler = await invoke<any[]>('get_giderler', { tenantIdParam: tenantId, yil: new Date().getFullYear() });
-            const kasalar = await invoke<any[]>('get_kasalar', { tenantIdParam: tenantId });
+            // Tüm tabloları paralel çek
+            const [uyeler, gelirler, giderler, kasalar, aidatTakip, virmanlar, gelirTurleri, giderTurleri, etkinlikler] = await Promise.all([
+                invoke<any[]>('get_uyeler', { tenantIdParam: tenantId }).catch(() => []),
+                invoke<any[]>('get_gelirler', { tenantIdParam: tenantId, yil: 0 }).catch(() => []),
+                invoke<any[]>('get_giderler', { tenantIdParam: tenantId, yil: 0 }).catch(() => []),
+                invoke<any[]>('get_kasalar', { tenantIdParam: tenantId }).catch(() => []),
+                invoke<any[]>('get_aidat_takip', { tenantIdParam: tenantId, yil: 0 }).catch(() => []),
+                invoke<any[]>('get_virmanlar', { tenantIdParam: tenantId }).catch(() => []),
+                invoke<any[]>('get_gelir_turleri', { tenantIdParam: tenantId }).catch(() => []),
+                invoke<any[]>('get_gider_turleri', { tenantIdParam: tenantId }).catch(() => []),
+                invoke<any[]>('get_etkinlikler', { tenantIdParam: tenantId }).catch(() => []),
+            ]);
 
-            console.log(`📊 Bulundu: ${uyeler?.length || 0} üye, ${gelirler?.length || 0} gelir, ${giderler?.length || 0} gider, ${kasalar?.length || 0} kasa`);
+            console.log(`📊 Bulundu: ${uyeler?.length || 0} üye, ${gelirler?.length || 0} gelir, ${giderler?.length || 0} gider, ${kasalar?.length || 0} kasa, ${aidatTakip?.length || 0} aidat, ${virmanlar?.length || 0} virman, ${etkinlikler?.length || 0} etkinlik`);
 
             // Tüm verileri ServerSyncChange formatına dönüştür
             const changes: ServerSyncChange[] = [];
@@ -409,6 +417,11 @@ class SyncService {
             addRecords(gelirler, 'gelirler');
             addRecords(giderler, 'giderler');
             addRecords(kasalar, 'kasalar');
+            addRecords(aidatTakip, 'aidat_takip');
+            addRecords(virmanlar, 'virmanlar');
+            addRecords(gelirTurleri, 'gelir_turleri');
+            addRecords(giderTurleri, 'gider_turleri');
+            addRecords(etkinlikler, 'etkinlikler');
 
             // Tek sync çağrısı
             const result = await this.executeSyncRequest(tenantId, changes);
@@ -418,6 +431,11 @@ class SyncService {
                 counts.gelirler = gelirler?.length || 0;
                 counts.giderler = giderler?.length || 0;
                 counts.kasalar = kasalar?.length || 0;
+                counts.aidat_takip = aidatTakip?.length || 0;
+                counts.virmanlar = virmanlar?.length || 0;
+                counts.gelir_turleri = gelirTurleri?.length || 0;
+                counts.gider_turleri = giderTurleri?.length || 0;
+                counts.etkinlikler = etkinlikler?.length || 0;
 
                 // Server'dan gelen değişiklikleri de uygula
                 if (result.changes.length > 0) {

@@ -243,6 +243,11 @@ const QuickAidatModal: React.FC<{
                         odenen: aidat.tutar,
                         odemeTarihi: new Date().toISOString().split('T')[0],
                     });
+                    // Sync kuyruğuna ekle
+                    try {
+                        const { syncService } = await import('@/services/syncService');
+                        await syncService.queueChange(tenantId, 'aidat_takip', 'update', { id: aidatId, tenant_id: tenantId, tutar: aidat.tutar, odenen: aidat.tutar, odeme_tarihi: new Date().toISOString().split('T')[0] });
+                    } catch (e) { console.warn('Sync queue hatası:', e); }
                 }
             }
             toast.success(`${selectedAylar.length} aidat tahsil edildi!`);
@@ -427,6 +432,13 @@ const QuickTransactionModal: React.FC<{
                         aciklama,
                     },
                 });
+                // Sync kuyruğuna ekle
+                try {
+                    const { syncService } = await import('@/services/syncService');
+                    const latestGelirler = await invoke<any[]>('get_gelirler', { tenantIdParam: tenantId, yil: 0 });
+                    const created = latestGelirler?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
+                    if (created) await syncService.queueChange(tenantId, 'gelirler', 'create', created);
+                } catch (e) { console.warn('Sync queue hatası:', e); }
                 toast.success('Gelir eklendi!');
             } else {
                 await invoke('create_gider', {
@@ -438,6 +450,13 @@ const QuickTransactionModal: React.FC<{
                         aciklama,
                     },
                 });
+                // Sync kuyruğuna ekle
+                try {
+                    const { syncService } = await import('@/services/syncService');
+                    const latestGiderler = await invoke<any[]>('get_giderler', { tenantIdParam: tenantId, yil: 0 });
+                    const created = latestGiderler?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
+                    if (created) await syncService.queueChange(tenantId, 'giderler', 'create', created);
+                } catch (e) { console.warn('Sync queue hatası:', e); }
                 toast.success('Gider eklendi!');
             }
             onSuccess();

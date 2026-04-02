@@ -299,6 +299,15 @@ export const MaliVirmanlarPage: React.FC = () => {
       if (farkliParaBirimi && manuelKurAktif && manuelKur) data.uygulanan_kur = parseFloat(manuelKur);
       else if (farkliParaBirimi && kurBilgisi) data.uygulanan_kur = kurBilgisi.kur_degeri;
       await invoke('create_virman', { tenantIdParam: tenant.id, data });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        const virmanlarList = await invoke<any[]>('get_virmanlar', { tenantIdParam: tenant.id });
+        const created = virmanlarList?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
+        if (created) await syncService.queueChange(tenant.id, 'virmanlar', 'create', created);
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       toast.success('Virman oluşturuldu!');
       setShowForm(false); setTutar(''); setAciklama('');
       loadVirmanlar(); loadKasalar();
@@ -307,7 +316,16 @@ export const MaliVirmanlarPage: React.FC = () => {
 
   const handleDelete = async () => {
     if (!tenant || !deletingVirman) return;
-    try { await invoke('delete_virman', { tenantIdParam: tenant.id, recordId: deletingVirman.id }); toast.success('Virman iptal edildi'); loadVirmanlar(); loadKasalar(); }
+    try { 
+      await invoke('delete_virman', { tenantIdParam: tenant.id, recordId: deletingVirman.id }); 
+      
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        await syncService.queueChange(tenant.id, 'virmanlar', 'delete', { id: deletingVirman.id, tenant_id: tenant.id });
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+      
+      toast.success('Virman iptal edildi'); loadVirmanlar(); loadKasalar(); }
     catch (error) { toast.error('İptal edilemedi: ' + error); }
     finally { setShowDeleteConfirm(false); setDeletingVirman(null); }
   };

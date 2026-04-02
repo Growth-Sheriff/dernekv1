@@ -72,6 +72,15 @@ export const EtkinliklerCreatePage: React.FC = () => {
           notlar: formData.notlar || null,
         },
       });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        const etkinliklerList = await invoke<any[]>('get_etkinlikler', { tenantIdParam: tenant.id });
+        const created = etkinliklerList?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
+        if (created) await syncService.queueChange(tenant.id, 'etkinlikler', 'create', created);
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       toast.success('Etkinlik başarıyla oluşturuldu!');
       navigate('/etkinlikler');
     } catch (error) {

@@ -438,6 +438,10 @@ pub fn apply_sync_changes(
             "giderler" => upsert_gider(&mut conn, &tenantIdParam, record_id, &data, action, &now),
             "kasalar" => upsert_kasa(&mut conn, &tenantIdParam, record_id, &data, action, &now),
             "aidatlar" | "aidat_takip" => upsert_aidat(&mut conn, &tenantIdParam, record_id, &data, action, &now),
+            "virmanlar" => upsert_virman(&mut conn, &tenantIdParam, record_id, &data, action, &now),
+            "gelir_turleri" => upsert_gelir_turu(&mut conn, &tenantIdParam, record_id, &data, action, &now),
+            "gider_turleri" => upsert_gider_turu(&mut conn, &tenantIdParam, record_id, &data, action, &now),
+            "etkinlikler" => upsert_etkinlik(&mut conn, &tenantIdParam, record_id, &data, action, &now),
             _ => {
                 println!("⚠️ Unknown table for sync: {}", table_name);
                 Ok(())
@@ -482,13 +486,23 @@ fn upsert_uye(
 
     let ad = data.get("ad").and_then(|v| v.as_str()).unwrap_or("");
     let soyad = data.get("soyad").and_then(|v| v.as_str()).unwrap_or("");
-    let ad_soyad = format!("{} {}", ad, soyad);
+    let ad_soyad_raw = data.get("ad_soyad").and_then(|v| v.as_str());
+    let ad_soyad = ad_soyad_raw.map(|s| s.to_string()).unwrap_or_else(|| format!("{} {}", ad, soyad));
     let uye_no = data.get("uye_no").and_then(|v| v.as_str()).unwrap_or("0");
     let tc_no = data.get("tc_no").and_then(|v| v.as_str()).unwrap_or("");
     let telefon = data.get("telefon").and_then(|v| v.as_str());
     let email = data.get("email").and_then(|v| v.as_str());
     let giris_tarihi = data.get("giris_tarihi").and_then(|v| v.as_str()).unwrap_or(now);
     let durum = data.get("durum").and_then(|v| v.as_str()).unwrap_or("AKTIF");
+    let cinsiyet = data.get("cinsiyet").and_then(|v| v.as_str());
+    let dogum_tarihi = data.get("dogum_tarihi").and_then(|v| v.as_str());
+    let kan_grubu = data.get("kan_grubu").and_then(|v| v.as_str());
+    let meslek = data.get("meslek").and_then(|v| v.as_str());
+    let adres = data.get("adres").and_then(|v| v.as_str());
+    let il = data.get("il").and_then(|v| v.as_str());
+    let ilce = data.get("ilce").and_then(|v| v.as_str());
+    let uyelik_tipi = data.get("uyelik_tipi").and_then(|v| v.as_str());
+    let notlar = data.get("notlar").and_then(|v| v.as_str());
     let created_at = data.get("created_at").and_then(|v| v.as_str()).unwrap_or(now);
 
     // Check if exists
@@ -502,8 +516,10 @@ fn upsert_uye(
         // Update
         diesel::sql_query(
             "UPDATE uyeler SET ad = ?1, soyad = ?2, ad_soyad = ?3, uye_no = ?4, tc_no = ?5, \
-             telefon = ?6, email = ?7, durum = ?8, updated_at = ?9 \
-             WHERE id = ?10 AND tenant_id = ?11"
+             telefon = ?6, email = ?7, durum = ?8, cinsiyet = ?9, dogum_tarihi = ?10, \
+             kan_grubu = ?11, meslek = ?12, adres = ?13, il = ?14, ilce = ?15, \
+             uyelik_tipi = ?16, notlar = ?17, updated_at = ?18 \
+             WHERE id = ?19 AND tenant_id = ?20"
         )
         .bind::<diesel::sql_types::Text, _>(ad)
         .bind::<diesel::sql_types::Text, _>(soyad)
@@ -513,6 +529,15 @@ fn upsert_uye(
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(telefon)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(email)
         .bind::<diesel::sql_types::Text, _>(durum)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(cinsiyet)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(dogum_tarihi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kan_grubu)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(meslek)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(adres)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(il)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(ilce)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(uyelik_tipi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(notlar)
         .bind::<diesel::sql_types::Text, _>(now)
         .bind::<diesel::sql_types::Text, _>(record_id)
         .bind::<diesel::sql_types::Text, _>(tenant_id)
@@ -522,8 +547,9 @@ fn upsert_uye(
         // Insert
         diesel::sql_query(
             "INSERT INTO uyeler (id, tenant_id, ad, soyad, ad_soyad, uye_no, tc_no, telefon, email, \
-             giris_tarihi, durum, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+             giris_tarihi, durum, cinsiyet, dogum_tarihi, kan_grubu, meslek, adres, il, ilce, \
+             uyelik_tipi, notlar, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)"
         )
         .bind::<diesel::sql_types::Text, _>(record_id)
         .bind::<diesel::sql_types::Text, _>(tenant_id)
@@ -536,6 +562,15 @@ fn upsert_uye(
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(email)
         .bind::<diesel::sql_types::Text, _>(giris_tarihi)
         .bind::<diesel::sql_types::Text, _>(durum)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(cinsiyet)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(dogum_tarihi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kan_grubu)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(meslek)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(adres)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(il)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(ilce)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(uyelik_tipi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(notlar)
         .bind::<diesel::sql_types::Text, _>(created_at)
         .bind::<diesel::sql_types::Text, _>(now)
         .execute(conn)
@@ -824,6 +859,261 @@ fn upsert_aidat(
         .bind::<diesel::sql_types::Double, _>(odenen)
         .bind::<diesel::sql_types::Text, _>(durum)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(odeme_tarihi)
+        .bind::<diesel::sql_types::Text, _>(created_at)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn upsert_virman(
+    conn: &mut diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<SqliteConnection>>,
+    tenant_id: &str,
+    record_id: &str,
+    data: &serde_json::Value,
+    action: &str,
+    now: &str,
+) -> Result<(), String> {
+    if action == "delete" {
+        diesel::sql_query("UPDATE virmanlar SET is_deleted = 1, updated_at = ?1 WHERE id = ?2 AND tenant_id = ?3")
+            .bind::<diesel::sql_types::Text, _>(now)
+            .bind::<diesel::sql_types::Text, _>(record_id)
+            .bind::<diesel::sql_types::Text, _>(tenant_id)
+            .execute(conn)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let kaynak_kasa_id = data.get("kaynak_kasa_id").and_then(|v| v.as_str()).unwrap_or("");
+    let hedef_kasa_id = data.get("hedef_kasa_id").and_then(|v| v.as_str()).unwrap_or("");
+    let tarih = data.get("tarih").and_then(|v| v.as_str()).unwrap_or(now);
+    let tutar = data.get("tutar").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let aciklama = data.get("aciklama").and_then(|v| v.as_str());
+    let uygulanan_kur = data.get("uygulanan_kur").and_then(|v| v.as_f64());
+    let created_at = data.get("created_at").and_then(|v| v.as_str()).unwrap_or(now);
+
+    let exists: i64 = diesel::sql_query("SELECT COUNT(*) as count FROM virmanlar WHERE id = ?1")
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .get_result::<CountResult>(conn)
+        .map(|r| r.count)
+        .unwrap_or(0);
+
+    if exists > 0 {
+        diesel::sql_query(
+            "UPDATE virmanlar SET kaynak_kasa_id = ?1, hedef_kasa_id = ?2, tarih = ?3, tutar = ?4, \
+             aciklama = ?5, uygulanan_kur = ?6, updated_at = ?7 \
+             WHERE id = ?8 AND tenant_id = ?9"
+        )
+        .bind::<diesel::sql_types::Text, _>(kaynak_kasa_id)
+        .bind::<diesel::sql_types::Text, _>(hedef_kasa_id)
+        .bind::<diesel::sql_types::Text, _>(tarih)
+        .bind::<diesel::sql_types::Double, _>(tutar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(uygulanan_kur)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    } else {
+        diesel::sql_query(
+            "INSERT INTO virmanlar (id, tenant_id, kaynak_kasa_id, hedef_kasa_id, tarih, tutar, \
+             aciklama, uygulanan_kur, is_deleted, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)"
+        )
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .bind::<diesel::sql_types::Text, _>(kaynak_kasa_id)
+        .bind::<diesel::sql_types::Text, _>(hedef_kasa_id)
+        .bind::<diesel::sql_types::Text, _>(tarih)
+        .bind::<diesel::sql_types::Double, _>(tutar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(uygulanan_kur)
+        .bind::<diesel::sql_types::Text, _>(created_at)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn upsert_gelir_turu(
+    conn: &mut diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<SqliteConnection>>,
+    tenant_id: &str,
+    record_id: &str,
+    data: &serde_json::Value,
+    action: &str,
+    now: &str,
+) -> Result<(), String> {
+    if action == "delete" {
+        diesel::sql_query("DELETE FROM gelir_turleri WHERE id = ?1 AND tenant_id = ?2")
+            .bind::<diesel::sql_types::Text, _>(record_id)
+            .bind::<diesel::sql_types::Text, _>(tenant_id)
+            .execute(conn)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let ad = data.get("ad").and_then(|v| v.as_str()).unwrap_or("");
+    let kod = data.get("kod").and_then(|v| v.as_str());
+    let aciklama = data.get("aciklama").and_then(|v| v.as_str());
+    let created_at = data.get("created_at").and_then(|v| v.as_str()).unwrap_or(now);
+
+    let exists: i64 = diesel::sql_query("SELECT COUNT(*) as count FROM gelir_turleri WHERE id = ?1")
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .get_result::<CountResult>(conn)
+        .map(|r| r.count)
+        .unwrap_or(0);
+
+    if exists > 0 {
+        diesel::sql_query(
+            "UPDATE gelir_turleri SET ad = ?1, kod = ?2, aciklama = ?3, updated_at = ?4 \
+             WHERE id = ?5 AND tenant_id = ?6"
+        )
+        .bind::<diesel::sql_types::Text, _>(ad)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kod)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    } else {
+        diesel::sql_query(
+            "INSERT INTO gelir_turleri (id, tenant_id, ad, kod, aciklama, is_active, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)"
+        )
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .bind::<diesel::sql_types::Text, _>(ad)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kod)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Text, _>(created_at)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn upsert_gider_turu(
+    conn: &mut diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<SqliteConnection>>,
+    tenant_id: &str,
+    record_id: &str,
+    data: &serde_json::Value,
+    action: &str,
+    now: &str,
+) -> Result<(), String> {
+    if action == "delete" {
+        diesel::sql_query("DELETE FROM gider_turleri WHERE id = ?1 AND tenant_id = ?2")
+            .bind::<diesel::sql_types::Text, _>(record_id)
+            .bind::<diesel::sql_types::Text, _>(tenant_id)
+            .execute(conn)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let ad = data.get("ad").and_then(|v| v.as_str()).unwrap_or("");
+    let kod = data.get("kod").and_then(|v| v.as_str());
+    let aciklama = data.get("aciklama").and_then(|v| v.as_str());
+    let created_at = data.get("created_at").and_then(|v| v.as_str()).unwrap_or(now);
+
+    let exists: i64 = diesel::sql_query("SELECT COUNT(*) as count FROM gider_turleri WHERE id = ?1")
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .get_result::<CountResult>(conn)
+        .map(|r| r.count)
+        .unwrap_or(0);
+
+    if exists > 0 {
+        diesel::sql_query(
+            "UPDATE gider_turleri SET ad = ?1, kod = ?2, aciklama = ?3, updated_at = ?4 \
+             WHERE id = ?5 AND tenant_id = ?6"
+        )
+        .bind::<diesel::sql_types::Text, _>(ad)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kod)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    } else {
+        diesel::sql_query(
+            "INSERT INTO gider_turleri (id, tenant_id, ad, kod, aciklama, is_active, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)"
+        )
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .bind::<diesel::sql_types::Text, _>(ad)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kod)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Text, _>(created_at)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn upsert_etkinlik(
+    conn: &mut diesel::r2d2::PooledConnection<diesel::r2d2::ConnectionManager<SqliteConnection>>,
+    tenant_id: &str,
+    record_id: &str,
+    data: &serde_json::Value,
+    action: &str,
+    now: &str,
+) -> Result<(), String> {
+    if action == "delete" {
+        diesel::sql_query("DELETE FROM etkinlikler WHERE id = ?1 AND tenant_id = ?2")
+            .bind::<diesel::sql_types::Text, _>(record_id)
+            .bind::<diesel::sql_types::Text, _>(tenant_id)
+            .execute(conn)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let ad = data.get("ad").and_then(|v| v.as_str());
+    let aciklama = data.get("aciklama").and_then(|v| v.as_str());
+    let tarih = data.get("tarih").and_then(|v| v.as_str());
+    let konum = data.get("konum").and_then(|v| v.as_str());
+    let created_at = data.get("created_at").and_then(|v| v.as_str()).unwrap_or(now);
+
+    let exists: i64 = diesel::sql_query("SELECT COUNT(*) as count FROM etkinlikler WHERE id = ?1")
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .get_result::<CountResult>(conn)
+        .map(|r| r.count)
+        .unwrap_or(0);
+
+    if exists > 0 {
+        diesel::sql_query(
+            "UPDATE etkinlikler SET ad = ?1, aciklama = ?2, tarih = ?3, konum = ?4, updated_at = ?5 \
+             WHERE id = ?6 AND tenant_id = ?7"
+        )
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(ad)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(tarih)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(konum)
+        .bind::<diesel::sql_types::Text, _>(now)
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    } else {
+        diesel::sql_query(
+            "INSERT INTO etkinlikler (id, tenant_id, ad, aciklama, tarih, konum, is_active, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)"
+        )
+        .bind::<diesel::sql_types::Text, _>(record_id)
+        .bind::<diesel::sql_types::Text, _>(tenant_id)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(ad)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(tarih)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(konum)
         .bind::<diesel::sql_types::Text, _>(created_at)
         .bind::<diesel::sql_types::Text, _>(now)
         .execute(conn)

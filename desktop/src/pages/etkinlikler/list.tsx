@@ -110,6 +110,15 @@ export const EtkinliklerListPage: React.FC = () => {
           notlar: formData.notlar || null,
         },
       });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        const etkinliklerList = await invoke<any[]>('get_etkinlikler', { tenantIdParam: tenant.id });
+        const created = etkinliklerList?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
+        if (created) await syncService.queueChange(tenant.id, 'etkinlikler', 'create', created);
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       toast.success('Etkinlik başarıyla oluşturuldu!');
       setShowCreateModal(false);
       setFormData({
@@ -171,6 +180,14 @@ export const EtkinliklerListPage: React.FC = () => {
           notlar: formData.notlar || null,
         },
       });
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        const etkinliklerList = await invoke<any[]>('get_etkinlikler', { tenantIdParam: tenant.id });
+        const updated = etkinliklerList?.find((e: any) => e.id === editingItem.id);
+        if (updated) await syncService.queueChange(tenant.id, 'etkinlikler', 'update', updated);
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       toast.success('Etkinlik başarıyla güncellendi!');
       setShowEditModal(false);
       setEditingItem(null);
@@ -193,6 +210,12 @@ export const EtkinliklerListPage: React.FC = () => {
         tenantIdParam: tenant.id,
         etkinlikId,
       });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        await syncService.queueChange(tenant.id, 'etkinlikler', 'delete', { id: etkinlikId, tenant_id: tenant.id });
+      } catch (e) { console.warn('Sync queue hatası:', e); }
       
       toast.success('Etkinlik başarıyla silindi!');
       loadEtkinlikler();

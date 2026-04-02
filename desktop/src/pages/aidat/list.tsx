@@ -203,6 +203,13 @@ export const AidatListPage: React.FC = () => {
         odenen: editingItem.odenen,
         odemeTarihi: editingItem.odeme_tarihi || null,
       });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        await syncService.queueChange(tenant.id, 'aidat_takip', 'update', { id: editingItem.id, tenant_id: tenant.id, tutar: editingItem.tutar, odenen: editingItem.odenen, odeme_tarihi: editingItem.odeme_tarihi });
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       setShowEditModal(false);
       setEditingItem(null);
       loadAidatlar();
@@ -223,6 +230,13 @@ export const AidatListPage: React.FC = () => {
         tenantIdParam: tenant.id,
         odemeId: id,
       });
+
+      // Sync kuyruğuna ekle
+      try {
+        const { syncService } = await import('@/services/syncService');
+        await syncService.queueChange(tenant.id, 'aidat_takip', 'delete', { id, tenant_id: tenant.id });
+      } catch (e) { console.warn('Sync queue hatası:', e); }
+
       loadAidatlar();
       loadOzet();
       toast.success('Aidat kaydı silindi');
