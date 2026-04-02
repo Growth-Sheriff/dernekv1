@@ -29,7 +29,7 @@ export function useNetworkStatus(): UseNetworkStatusReturn {
     setStatus('checking');
     
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1';
+      const API_URL = import.meta.env.VITE_API_URL;
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 saniye timeout

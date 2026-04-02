@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8000'
-    : 'http://35.195.123.84:8000');
+import { API_BASE as API_BASE_URL } from '@/config';
 
 export function LicenseUpgradePage() {
     const { license, updateLicense, token } = useAuthStore();

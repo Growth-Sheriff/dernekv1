@@ -6,10 +6,7 @@ import { z } from 'zod';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/authStore';
 import { useLicenseStore } from '@/store/licenseStore';
-
-const API_URL = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:8000'
-  : 'http://35.195.123.84:8000');
+import { API_BASE as API_URL } from '@/config';
 
 const loginSchema = z.object({
   mode: z.enum(['LOCAL', 'ONLINE', 'HYBRID']),

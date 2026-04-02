@@ -4,9 +4,7 @@
  * Super Admin'den gelen bildirimleri almak ve online durumunu bildirmek için.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-        ? 'http://localhost:8000/api/v1'
-        : 'http://35.195.123.84:8000/api/v1');
+import { API_BASE_URL } from '../config';
 
 export interface Notification {
     id: string;

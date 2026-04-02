@@ -62,7 +62,7 @@ export const OnboardingLicensePage: React.FC = () => {
       if (licenseKey !== 'DEMO-MODE-0000-0000') {
         try {
           console.log('🌐 Attempting remote validation...');
-          console.log('📡 API URL:', `${import.meta.env.VITE_API_URL || 'http://35.195.123.84:8000/api/v1'}/licenses/validate`);
+          console.log('📡 API URL:', `${import.meta.env.VITE_API_URL}/licenses/validate`);
           console.log('📡 License Key:', licenseKey);
 
           const remoteResult = await api.license.validate(licenseKey, deviceId || 'unknown-device');

@@ -215,7 +215,7 @@ export default function SyncPage() {
                 <div className="mt-3 space-y-2 text-sm">
                     <div className="flex justify-between">
                         <span className="text-muted-foreground">Sunucu:</span>
-                        <span className="font-mono">{import.meta.env.VITE_API_BASE || 'http://35.195.123.84:8000'}</span>
+                        <span className="font-mono">{import.meta.env.VITE_API_BASE}</span>
                     </div>
                     <div className="flex justify-between">
                         <span className="text-muted-foreground">Tenant ID:</span>

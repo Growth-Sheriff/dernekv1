@@ -23,9 +23,7 @@ import {
 import { useAuthStore } from '../../store/authStore';
 import { useLicenseStore } from '../../store/licenseStore';
 import { syncService } from '../../services/syncService';
-
-// API URL - .env dosyasından okunur
-const API_URL = import.meta.env.VITE_API_BASE || 'http://35.195.123.84:8000';
+import { API_BASE as API_URL } from '../../config';
 
 // Backend API Response Types
 interface LicenseApiResponse {

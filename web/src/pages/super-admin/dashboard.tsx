@@ -8,10 +8,7 @@ import {
     RefreshCw, ChevronDown, Copy
 } from 'lucide-react';
 import { superAdminStore } from './login';
-
-const API_URL = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:8000'
-    : 'http://35.195.123.84:8000');
+import { API_BASE as API_URL } from '@/config';
 
 interface Tenant {
     id: string;

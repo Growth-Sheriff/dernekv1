@@ -14,7 +14,7 @@
       "identifier": "http:default",
       "allow": [
         {
-          "url": "http://35.195.123.84:8000/**"
+          "url": "http://34.78.45.159:8000/**"
         },
         {
           "url": "http://**"
