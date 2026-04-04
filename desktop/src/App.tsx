@@ -134,10 +134,10 @@ function AppContent() {
 
         console.log('🔄 Auto-sync starting (HYBRID mode)...');
 
-        // Import sync service and pull data
+        // Import sync service and start full sync
         const { syncService } = await import('@/services/syncService');
         syncService.configure(token, 'hybrid');
-        await syncService.pullFromServer(tenantId);
+        await syncService.fullSync();
 
         console.log('✅ Auto-sync completed');
       } catch (error) {
