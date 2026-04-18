@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Check, X, Loader2 } from 'lucide-react';
+import { parseTRNumber } from '@/lib/formatters';
 
 export type CellType = 'text' | 'number' | 'currency' | 'date' | 'select' | 'checkbox';
 
@@ -162,8 +163,8 @@ export const EditableCell: React.FC<EditableCellProps> = ({
     let parsedValue: string | number | boolean | null = localValue;
     
     if (type === 'number' || type === 'currency') {
-      const num = parseFloat(localValue.replace(',', '.'));
-      parsedValue = isNaN(num) ? null : num;
+      // TR locale aware parse: "1.234,56" / "100,50" / "1,234.56" hepsi doğru.
+      parsedValue = parseTRNumber(localValue);
     } else if (type === 'checkbox') {
       parsedValue = localValue === 'true' || localValue === '1';
     } else if (localValue === '') {

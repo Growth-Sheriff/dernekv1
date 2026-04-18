@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { parseTRNumber } from '@/lib/formatters';
 
 export const EtkinliklerCreatePage: React.FC = () => {
   const navigate = useNavigate();
@@ -65,8 +66,8 @@ export const EtkinliklerCreatePage: React.FC = () => {
           yer: formData.yer || null,
           etkinlik_tipi: formData.etkinlik_tipi || null,
           durum: formData.durum || null,
-          tahmini_butce: formData.tahmini_butce ? parseFloat(formData.tahmini_butce) : null,
-          gerceklesen_butce: formData.gerceklesen_butce ? parseFloat(formData.gerceklesen_butce) : null,
+          tahmini_butce: parseTRNumber(formData.tahmini_butce),
+          gerceklesen_butce: parseTRNumber(formData.gerceklesen_butce),
           katilimci_sayisi: formData.katilimci_sayisi ? parseInt(formData.katilimci_sayisi) : null,
           sorumlu_uye_id: formData.sorumlu_uye_id || null,
           notlar: formData.notlar || null,
@@ -228,22 +229,22 @@ export const EtkinliklerCreatePage: React.FC = () => {
               <FormField label="Tahmini Bütçe" htmlFor="tahmini_butce" helperText="TL cinsinden">
                 <Input
                   id="tahmini_butce"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.tahmini_butce}
                   onChange={(e) => handleChange('tahmini_butce', e.target.value)}
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
 
               <FormField label="Gerçekleşen Bütçe" htmlFor="gerceklesen_butce" helperText="TL cinsinden">
                 <Input
                   id="gerceklesen_butce"
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.gerceklesen_butce}
                   onChange={(e) => handleChange('gerceklesen_butce', e.target.value)}
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
             </FormSection>

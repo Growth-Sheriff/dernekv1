@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { PageLayout, GlassCard, SectionCard } from '@/components/ui/page-layout';
 import { StatCard, StatIcons } from '@/components/ui/dashboard-widgets';
+import { parseTRNumber } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 
 interface AidatTakip {
@@ -530,10 +531,10 @@ export const AidatListPage: React.FC = () => {
               <div>
                 <label className="text-sm font-medium text-gray-700">Tutar (₺)</label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={editingItem.tutar}
-                  onChange={(e) => setEditingItem({ ...editingItem, tutar: parseFloat(e.target.value) })}
+                  onChange={(e) => setEditingItem({ ...editingItem, tutar: parseTRNumber(e.target.value) ?? 0 })}
                   className="mt-1"
                 />
               </div>
@@ -541,10 +542,10 @@ export const AidatListPage: React.FC = () => {
               <div>
                 <label className="text-sm font-medium text-gray-700">Ödenen (₺)</label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={editingItem.odenen}
-                  onChange={(e) => setEditingItem({ ...editingItem, odenen: parseFloat(e.target.value) })}
+                  onChange={(e) => setEditingItem({ ...editingItem, odenen: parseTRNumber(e.target.value) ?? 0 })}
                   className="mt-1"
                 />
               </div>

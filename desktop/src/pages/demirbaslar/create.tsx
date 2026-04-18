@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { parseTRNumber } from '@/lib/formatters';
 
 interface Uye {
   id: string;
@@ -141,7 +142,7 @@ export const DemirbasCreatePage: React.FC = () => {
         marka_model: form.marka_model || null,
         seri_no: form.seri_no || null,
         alis_tarihi: form.alis_tarihi || null,
-        alis_bedeli: form.alis_bedeli ? parseFloat(form.alis_bedeli) : null,
+        alis_bedeli: form.alis_bedeli ? parseTRNumber(form.alis_bedeli) : null,
         garanti_bitis: form.garanti_bitis || null,
         amortisman_suresi: form.amortisman_suresi ? parseInt(form.amortisman_suresi) : 5,
         konum: form.konum || null,
@@ -278,12 +279,11 @@ export const DemirbasCreatePage: React.FC = () => {
                 <Input
                   id="alis_bedeli"
                   name="alis_bedeli"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={form.alis_bedeli}
                   onChange={handleChange}
-                  step="0.01"
-                  min={0}
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
               <FormField label="Amortisman Süresi" htmlFor="amortisman_suresi">

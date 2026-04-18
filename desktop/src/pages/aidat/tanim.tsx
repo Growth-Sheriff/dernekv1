@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { DollarSign, Plus, Save, Trash2, Pencil, X, Users } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
+import { parseTRNumber } from '@/lib/formatters';
 
 const UYE_TURLERI = ['Asil', 'Onursal', 'Fahri', 'Kurumsal'] as const;
 
@@ -62,8 +63,8 @@ export const AidatTanimPage: React.FC = () => {
       await invoke('set_aidat_tanimi', {
         tenantIdParam: tenant.id,
         yil: parseInt(form.yil),
-        tutar: parseFloat(form.tutar),
-        gecikmeFaizOrani: form.gecikme_faiz_orani ? parseFloat(form.gecikme_faiz_orani) : null,
+        tutar: parseTRNumber(form.tutar) ?? 0,
+        gecikmeFaizOrani: form.gecikme_faiz_orani ? parseTRNumber(form.gecikme_faiz_orani) : null,
         aciklama: form.aciklama || null,
         uyeTuru: form.uye_turu,
       });
@@ -289,12 +290,11 @@ export const AidatTanimPage: React.FC = () => {
                   Aidat Tutarı (₺) <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={form.tutar}
                   onChange={(e) => setForm({ ...form, tutar: e.target.value })}
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -303,13 +303,11 @@ export const AidatTanimPage: React.FC = () => {
                   Gecikme Faiz Oranı (%)
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={form.gecikme_faiz_orani}
                   onChange={(e) => setForm({ ...form, gecikme_faiz_orani: e.target.value })}
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>

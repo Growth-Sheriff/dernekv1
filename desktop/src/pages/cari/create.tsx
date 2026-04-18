@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { parseTRNumber } from '@/lib/formatters';
 
 interface CariForm {
   cari_kodu: string;
@@ -141,7 +142,7 @@ export const CariCreatePage: React.FC = () => {
         banka_adi: form.banka_adi || null,
         iban: form.iban || null,
         odeme_vade: form.odeme_vade ? parseInt(form.odeme_vade) : 30,
-        risk_limiti: form.risk_limiti ? parseFloat(form.risk_limiti) : null,
+        risk_limiti: form.risk_limiti ? parseTRNumber(form.risk_limiti) : null,
         notlar: form.notlar || null,
       };
       
@@ -373,12 +374,11 @@ export const CariCreatePage: React.FC = () => {
                 <Input
                   id="risk_limiti"
                   name="risk_limiti"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={form.risk_limiti}
                   onChange={handleChange}
-                  step="0.01"
-                  min={0}
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
               <FormField label="Notlar" htmlFor="notlar" className="col-span-2">

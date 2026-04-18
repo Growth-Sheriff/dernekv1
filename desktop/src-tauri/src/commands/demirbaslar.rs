@@ -157,7 +157,8 @@ pub fn create_demirbas(
 ) -> Result<String, String> {
     let new_id = Uuid::new_v4().to_string();
     let now = Utc::now().naive_utc().to_string();
-    let durum = data.durum.unwrap_or_else(|| "Aktif".to_string());
+    // Durum standart değerleri: 'aktif' | 'arizali' | 'bakimda' | 'kullanim_disi' | 'satildi' | 'hurda'
+    let durum = data.durum.unwrap_or_else(|| "aktif".to_string());
     let kategori = data.kategori.unwrap_or_else(|| "Diğer".to_string());
     let amortisman_suresi = data.amortisman_suresi.unwrap_or(5);
     let alis_bedeli = data.alis_bedeli.unwrap_or(0.0);
@@ -218,7 +219,7 @@ pub fn update_demirbas(
     data: DemirbasInput,
 ) -> Result<(), String> {
     let now = Utc::now().naive_utc().to_string();
-    let durum = data.durum.unwrap_or_else(|| "Aktif".to_string());
+    let durum = data.durum.unwrap_or_else(|| "aktif".to_string());
     let kategori = data.kategori.unwrap_or_else(|| "Diğer".to_string());
     let amortisman_suresi = data.amortisman_suresi.unwrap_or(5);
     let alis_bedeli = data.alis_bedeli.unwrap_or(0.0);
@@ -320,7 +321,7 @@ pub fn get_demirbas_ozet(
     .count;
 
     let aktif = diesel::sql_query(
-        "SELECT COUNT(*) as count FROM demirbaslar WHERE tenant_id = ?1 AND is_active = 1 AND durum = 'Aktif'"
+        "SELECT COUNT(*) as count FROM demirbaslar WHERE tenant_id = ?1 AND is_active = 1 AND durum = 'aktif'"
     )
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
     .get_result::<CountResult>(&mut conn)
@@ -337,7 +338,7 @@ pub fn get_demirbas_ozet(
     .unwrap_or(0.0);
 
     let bakimda = diesel::sql_query(
-        "SELECT COUNT(*) as count FROM demirbaslar WHERE tenant_id = ?1 AND is_active = 1 AND durum = 'Bakımda'"
+        "SELECT COUNT(*) as count FROM demirbaslar WHERE tenant_id = ?1 AND is_active = 1 AND durum = 'bakimda'"
     )
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
     .get_result::<CountResult>(&mut conn)

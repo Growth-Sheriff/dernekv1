@@ -227,9 +227,10 @@ pub async fn create_aidat(
     let new_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
+    // Durum değeri standardı: 'odenmedi' | 'kismi_odendi' | 'odendi' | 'iptal'
     diesel::sql_query(
         "INSERT INTO aidat_takip (id, tenant_id, uye_id, yil, ay, tutar, odenen, gecikme_gun, gecikme_faiz, durum, notlar, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0.0, 0, 0.0, 'beklemede', ?7, ?8, ?9)"
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0.0, 0, 0.0, 'odenmedi', ?7, ?8, ?9)"
     )
     .bind::<diesel::sql_types::Text, _>(&new_id)
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -419,24 +420,26 @@ pub async fn get_aidat_ozet(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    // Bugünün tarihini al — son_odeme_tarihi geçmiş ve hala ödenmemiş olanlar "gecikti" kabul edilir.
-    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    // Gecikme kriteri: Aidat dönemi (yil-ay) bugünden önce ve hala tamamen ödenmemiş.
+    // aidat_takip.son_odeme_tarihi diye bir kolon yok — yil ve ay üzerinden hesaplıyoruz.
+    let now = chrono::Utc::now();
+    let bugun_ym: i32 = now.format("%Y").to_string().parse::<i32>().unwrap_or(0) * 100
+                      + now.format("%m").to_string().parse::<i32>().unwrap_or(0);
 
     let result = diesel::sql_query(
         "SELECT
             COALESCE(SUM(tutar), 0.0) as toplam_tutar,
             COALESCE(SUM(odenen), 0.0) as toplam_odenen,
             COUNT(CASE WHEN durum = 'odendi' THEN 1 END) as odenen_adet,
-            COUNT(CASE WHEN (durum = 'odenmedi' OR durum = 'kismi_odendi')
-                           AND son_odeme_tarihi IS NOT NULL
-                           AND son_odeme_tarihi < ?3 THEN 1 END) as geciken_adet
+            COUNT(CASE WHEN (durum IS NULL OR durum = 'odenmedi' OR durum = 'kismi_odendi' OR durum = 'Bekliyor' OR durum = 'beklemede' OR durum = 'bekliyor')
+                           AND (yil * 100 + ay) < ?3 THEN 1 END) as geciken_adet
          FROM aidat_takip
          WHERE tenant_id = ?1 AND yil = ?2
            AND (durum IS NULL OR durum != 'iptal')"
     )
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, &str>(&tenant_id_param)
     .bind::<diesel::sql_types::Integer, _>(yil)
-    .bind::<diesel::sql_types::Text, _>(&today)
+    .bind::<diesel::sql_types::Integer, _>(bugun_ym)
     .get_result::<AidatOzetQuery>(&mut conn)
     .map_err(|e| e.to_string())?;
 
@@ -1237,11 +1240,11 @@ pub async fn add_aidat_odeme(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     
-    // Aidat kaydını güncelle
-    diesel::sql_query(
-        "UPDATE aidat_takip 
-         SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, updated_at = ?5
-         WHERE id = ?6"
+    // Aidat kaydını güncelle (version check ile — concurrent ödeme çakışmalarını yakala)
+    let affected = diesel::sql_query(
+        "UPDATE aidat_takip
+         SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, version = version + 1, updated_at = ?5
+         WHERE id = ?6 AND version = ?7"
     )
     .bind::<diesel::sql_types::Double, _>(yeni_odenen)
     .bind::<diesel::sql_types::Double, _>(yeni_kalan)
@@ -1249,9 +1252,14 @@ pub async fn add_aidat_odeme(
     .bind::<diesel::sql_types::Text, _>(&today)
     .bind::<diesel::sql_types::Text, _>(&now)
     .bind::<diesel::sql_types::Text, _>(&aidat_id)
+    .bind::<diesel::sql_types::Integer, _>(current_aidat.version)
     .execute(&mut conn)
     .map_err(|e| format!("Aidat güncellenemedi: {}", e))?;
-    
+
+    if affected == 0 {
+        return Err("Ödeme çakışması: bu aidat kaydı bu arada değiştirilmiş. Lütfen sayfayı yenileyip tekrar deneyin.".to_string());
+    }
+
     Ok("Ödeme kaydedildi".to_string())
 }
 
@@ -1920,6 +1928,8 @@ pub async fn coklu_donem_tahsilat(
         odenen: f64,
         #[diesel(sql_type = diesel::sql_types::Double)]
         kalan: f64,
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        version: i32,
     }
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -1932,9 +1942,9 @@ pub async fn coklu_donem_tahsilat(
                 break;
             }
 
-            // Bu yılın aidat kaydını bul
+            // Bu yılın aidat kaydını bul (version dahil)
             let aidat_opt = diesel::sql_query(
-                "SELECT id, tutar, odenen, kalan FROM aidat_takip
+                "SELECT id, tutar, odenen, kalan, version FROM aidat_takip
                  WHERE tenant_id = ?1 AND uye_id = ?2 AND yil = ?3 AND kalan > 0"
             )
             .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -1952,11 +1962,11 @@ pub async fn coklu_donem_tahsilat(
                 let yeni_kalan = kalan - odeme_miktari;
                 let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else { "kismi_odendi" };
 
-                // Aidat kaydını güncelle
-                diesel::sql_query(
+                // Aidat kaydını güncelle (version check — concurrent ödeme yakala)
+                let affected = diesel::sql_query(
                     "UPDATE aidat_takip
-                     SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, updated_at = ?5
-                     WHERE id = ?6"
+                     SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, version = version + 1, updated_at = ?5
+                     WHERE id = ?6 AND version = ?7"
                 )
                 .bind::<diesel::sql_types::Double, _>(yeni_odenen)
                 .bind::<diesel::sql_types::Double, _>(yeni_kalan)
@@ -1964,7 +1974,13 @@ pub async fn coklu_donem_tahsilat(
                 .bind::<diesel::sql_types::Text, _>(&odeme_tarihi)
                 .bind::<diesel::sql_types::Text, _>(&chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
                 .bind::<diesel::sql_types::Text, _>(&aidat_id)
+                .bind::<diesel::sql_types::Integer, _>(aidat_row.version)
                 .execute(conn)?;
+
+                if affected == 0 {
+                    // Concurrent değişiklik — tüm toplu işlemi geri al
+                    return Err(diesel::result::Error::RollbackTransaction);
+                }
 
                 kalan_odeme -= odeme_miktari;
                 odenen_yillar.push(yil);

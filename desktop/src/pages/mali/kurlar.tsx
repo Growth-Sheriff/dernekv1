@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Calculator
 } from 'lucide-react';
+import { parseTRNumber } from '@/lib/formatters';
 import { useAuthStore } from '@/store/authStore';
 
 interface Kur {
@@ -94,8 +95,8 @@ export const KurlarPage: React.FC = () => {
   const handleQuickSave = async (paraBirimi: ParaBirimi) => {
     if (!tenant) return;
     
-    const kurDegeri = paraBirimi === 'USD' ? parseFloat(usdKur) : parseFloat(eurKur);
-    
+    const kurDegeri = paraBirimi === 'USD' ? parseTRNumber(usdKur) : parseTRNumber(eurKur);
+
     if (!kurDegeri || kurDegeri <= 0) {
       alert('Geçerli bir kur değeri giriniz');
       return;
@@ -272,12 +273,11 @@ export const KurlarPage: React.FC = () => {
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">1 USD =</span>
               <input
-                type="number"
-                step="0.0001"
-                min="0"
+                type="text"
+                inputMode="decimal"
                 value={usdKur}
                 onChange={(e) => setUsdKur(e.target.value)}
-                placeholder="0.0000"
+                placeholder="0,0000"
                 className="w-full pl-20 pr-16 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-lg font-semibold text-right"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">TRY</span>
@@ -324,12 +324,11 @@ export const KurlarPage: React.FC = () => {
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">1 EUR =</span>
               <input
-                type="number"
-                step="0.0001"
-                min="0"
+                type="text"
+                inputMode="decimal"
                 value={eurKur}
                 onChange={(e) => setEurKur(e.target.value)}
-                placeholder="0.0000"
+                placeholder="0,0000"
                 className="w-full pl-20 pr-16 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-semibold text-right"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">TRY</span>
@@ -519,12 +518,11 @@ export const KurlarPage: React.FC = () => {
                   Kur Değeri
                 </label>
                 <input
-                  type="number"
-                  step="0.0001"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.kur_degeri || ''}
-                  onChange={(e) => setFormData({ ...formData, kur_degeri: parseFloat(e.target.value) || 0 })}
-                  placeholder="0.0000"
+                  onChange={(e) => setFormData({ ...formData, kur_degeri: parseTRNumber(e.target.value) ?? 0 })}
+                  placeholder="0,0000"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>

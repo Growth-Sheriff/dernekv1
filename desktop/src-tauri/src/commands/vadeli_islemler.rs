@@ -307,118 +307,100 @@ pub fn gerceklestir_vadeli_islem(
         .ok_or("Vadeli işlem için kasa tanımlı değil")?;
 
     let gerceklesen_id = Uuid::new_v4().to_string();
+    let is_gelir = vadeli.islem_tipi.to_lowercase() == "gelir";
 
-    // 2. İşlem tipine göre gelir veya gider oluştur
-    if vadeli.islem_tipi.to_lowercase() == "gelir" {
-        // Gelir kaydı oluştur
-        diesel::sql_query(
-            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)"
-        )
-        .bind::<diesel::sql_types::Text, _>(&gerceklesen_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(kasa_id)
-        .bind::<diesel::sql_types::Text, _>(vadeli.kategori.as_deref().unwrap_or("Vadeli Gelir"))
-        .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
-        .bind::<diesel::sql_types::Text, _>(&today)
-        .bind::<diesel::sql_types::Text, _>(vadeli.aciklama.as_deref().unwrap_or("Vadeli işlem gerçekleşti"))
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(&mut conn)
-        .map_err(|e| format!("Gelir kaydı oluşturulamadı: {}", e))?;
-
-        // Kasa bakiyesini artır
-        diesel::sql_query(
-            "UPDATE kasalar SET bakiye = bakiye + ?1, toplam_gelir = toplam_gelir + ?1, updated_at = ?2 WHERE id = ?3"
-        )
-        .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(kasa_id)
-        .execute(&mut conn)
-        .map_err(|e| format!("Kasa güncellenemedi: {}", e))?;
-
-    } else {
-        // Gider kaydı oluştur
-        diesel::sql_query(
-            "INSERT INTO giderler (id, tenant_id, kasa_id, gider_turu, tutar, tarih, aciklama, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)"
-        )
-        .bind::<diesel::sql_types::Text, _>(&gerceklesen_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(kasa_id)
-        .bind::<diesel::sql_types::Text, _>(vadeli.kategori.as_deref().unwrap_or("Vadeli Gider"))
-        .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
-        .bind::<diesel::sql_types::Text, _>(&today)
-        .bind::<diesel::sql_types::Text, _>(vadeli.aciklama.as_deref().unwrap_or("Vadeli işlem gerçekleşti"))
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(&mut conn)
-        .map_err(|e| format!("Gider kaydı oluşturulamadı: {}", e))?;
-
-        // Kasa bakiyesini azalt
-        diesel::sql_query(
-            "UPDATE kasalar SET bakiye = bakiye - ?1, toplam_gider = toplam_gider + ?1, updated_at = ?2 WHERE id = ?3"
-        )
-        .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(kasa_id)
-        .execute(&mut conn)
-        .map_err(|e| format!("Kasa güncellenemedi: {}", e))?;
-    }
-
-    // 3. Cari hareket oluştur (eğer cari_id varsa)
-    if let Some(cari_id) = &vadeli.cari_id {
-        let hareket_tipi = if vadeli.islem_tipi.to_lowercase() == "gelir" { "ALACAK" } else { "BORC" };
-        let hareket_id = Uuid::new_v4().to_string();
-        
-        diesel::sql_query(
-            "INSERT INTO cari_hareketler (id, tenant_id, cari_id, hareket_tipi, tarih, tutar, odenen, kalan, belge_turu, kasa_id, gelir_id, gider_id, durum, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 0, 'Vadeli İşlem', ?7, ?8, ?9, 'Tamamlandı', ?10, ?10)"
-        )
-        .bind::<diesel::sql_types::Text, _>(&hareket_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(cari_id)
-        .bind::<diesel::sql_types::Text, _>(hareket_tipi)
-        .bind::<diesel::sql_types::Text, _>(&today)
-        .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
-        .bind::<diesel::sql_types::Text, _>(kasa_id)
-        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(if vadeli.islem_tipi.to_lowercase() == "gelir" { Some(&gerceklesen_id) } else { None })
-        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(if vadeli.islem_tipi.to_lowercase() != "gelir" { Some(&gerceklesen_id) } else { None })
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(&mut conn)
-        .map_err(|e| format!("Cari hareket oluşturulamadı: {}", e))?;
-
-        // Cari bakiye güncelle
-        if vadeli.islem_tipi.to_lowercase() == "gelir" {
+    // Tüm işlem tek bir transaction içinde — 4 tablo atomic güncelleniyor.
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // 2. Gelir veya gider kaydı oluştur (kasa.bakiye ve toplam_* alanlarına
+        // DIREKT UPDATE yapılmıyor — update_kasa_bakiye tek kaynak).
+        if is_gelir {
             diesel::sql_query(
-                "UPDATE cariler SET alacak_bakiye = alacak_bakiye + ?1, updated_at = ?2 WHERE id = ?3"
+                "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)"
             )
+            .bind::<diesel::sql_types::Text, _>(&gerceklesen_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(kasa_id)
+            .bind::<diesel::sql_types::Text, _>(vadeli.kategori.as_deref().unwrap_or("Vadeli Gelir"))
             .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
+            .bind::<diesel::sql_types::Text, _>(&today)
+            .bind::<diesel::sql_types::Text, _>(vadeli.aciklama.as_deref().unwrap_or("Vadeli işlem gerçekleşti"))
             .bind::<diesel::sql_types::Text, _>(&now)
-            .bind::<diesel::sql_types::Text, _>(cari_id)
-            .execute(&mut conn)
-            .ok();
+            .execute(conn)?;
         } else {
             diesel::sql_query(
-                "UPDATE cariler SET borc_bakiye = borc_bakiye + ?1, updated_at = ?2 WHERE id = ?3"
+                "INSERT INTO giderler (id, tenant_id, kasa_id, gider_turu, tutar, tarih, aciklama, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8)"
             )
+            .bind::<diesel::sql_types::Text, _>(&gerceklesen_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(kasa_id)
+            .bind::<diesel::sql_types::Text, _>(vadeli.kategori.as_deref().unwrap_or("Vadeli Gider"))
             .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
+            .bind::<diesel::sql_types::Text, _>(&today)
+            .bind::<diesel::sql_types::Text, _>(vadeli.aciklama.as_deref().unwrap_or("Vadeli işlem gerçekleşti"))
             .bind::<diesel::sql_types::Text, _>(&now)
-            .bind::<diesel::sql_types::Text, _>(cari_id)
-            .execute(&mut conn)
-            .ok();
+            .execute(conn)?;
         }
-    }
 
-    // 4. Vadeli işlem durumunu güncelle
-    diesel::sql_query(
-        "UPDATE vadeli_islemler SET durum = 'Gerçekleşti', gerceklesen_id = ?1, gerceklesme_tarihi = ?2, updated_at = ?3 WHERE id = ?4 AND tenant_id = ?5"
-    )
-    .bind::<diesel::sql_types::Text, _>(&gerceklesen_id)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&vadeli_islem_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .execute(&mut conn)
-    .map_err(|e| e.to_string())?;
+        // Kasa bakiyesini gelirler/giderler SUM'ından yeniden hesapla.
+        crate::commands::mali::update_kasa_bakiye(conn, kasa_id)?;
+
+        // 3. Cari hareket oluştur (eğer cari_id varsa)
+        if let Some(cari_id) = &vadeli.cari_id {
+            // Diğer modüllerle tutarlı: "Alacak" / "Borç" (Türkçe).
+            let hareket_tipi = if is_gelir { "Alacak" } else { "Borç" };
+            let hareket_id = Uuid::new_v4().to_string();
+
+            diesel::sql_query(
+                "INSERT INTO cari_hareketler (id, tenant_id, cari_id, hareket_tipi, tarih, tutar, odenen, kalan, belge_turu, kasa_id, gelir_id, gider_id, durum, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 0, 'Vadeli İşlem', ?7, ?8, ?9, 'Tamamlandı', ?10, ?10)"
+            )
+            .bind::<diesel::sql_types::Text, _>(&hareket_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(cari_id)
+            .bind::<diesel::sql_types::Text, _>(hareket_tipi)
+            .bind::<diesel::sql_types::Text, _>(&today)
+            .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
+            .bind::<diesel::sql_types::Text, _>(kasa_id)
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(if is_gelir { Some(&gerceklesen_id) } else { None })
+            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(if !is_gelir { Some(&gerceklesen_id) } else { None })
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .execute(conn)?;
+
+            // Cari bakiye güncelle
+            if is_gelir {
+                diesel::sql_query(
+                    "UPDATE cariler SET alacak_bakiye = COALESCE(alacak_bakiye, 0) + ?1, updated_at = ?2 WHERE id = ?3"
+                )
+                .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(cari_id)
+                .execute(conn)?;
+            } else {
+                diesel::sql_query(
+                    "UPDATE cariler SET borc_bakiye = COALESCE(borc_bakiye, 0) + ?1, updated_at = ?2 WHERE id = ?3"
+                )
+                .bind::<diesel::sql_types::Double, _>(vadeli.tutar)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(cari_id)
+                .execute(conn)?;
+            }
+        }
+
+        // 4. Vadeli işlem durumunu güncelle
+        diesel::sql_query(
+            "UPDATE vadeli_islemler SET durum = 'Gerçekleşti', gerceklesen_id = ?1, gerceklesme_tarihi = ?2, updated_at = ?3 WHERE id = ?4 AND tenant_id = ?5"
+        )
+        .bind::<diesel::sql_types::Text, _>(&gerceklesen_id)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&vadeli_islem_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .execute(conn)?;
+
+        Ok(())
+    }).map_err(|e| format!("Vadeli işlem gerçekleştirilemedi: {}", e))?;
 
     Ok(gerceklesen_id)
 }

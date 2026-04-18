@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/store/authStore';
+import { parseTRNumber } from '@/lib/formatters';
 
 // ============================================================================
 // TYPES
@@ -367,12 +368,13 @@ const AidatTopluIslemlerPage: React.FC = () => {
               <Label htmlFor="tutar">Varsayılan Tutar (₺) *</Label>
               <Input
                 id="tutar"
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={topluForm.varsayilan_tutar}
                 onChange={(e) =>
-                  setTopluForm({ ...topluForm, varsayilan_tutar: parseFloat(e.target.value) })
+                  setTopluForm({ ...topluForm, varsayilan_tutar: parseTRNumber(e.target.value) ?? 0 })
                 }
+                placeholder="0,00"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Sadece tanım ve özel tutar olmayan üyeler için kullanılır
@@ -451,10 +453,11 @@ const AidatTopluIslemlerPage: React.FC = () => {
               <div>
                 <Label>Tutar (₺)</Label>
                 <Input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={ozelForm.tutar}
-                  onChange={(e) => setOzelForm({ ...ozelForm, tutar: parseFloat(e.target.value) })}
+                  onChange={(e) => setOzelForm({ ...ozelForm, tutar: parseTRNumber(e.target.value) ?? 0 })}
+                  placeholder="0,00"
                 />
               </div>
             </div>
@@ -568,12 +571,13 @@ const AidatTopluIslemlerPage: React.FC = () => {
                   <div>
                     <Label>Ödeme Tutarı (₺) *</Label>
                     <Input
-                      type="number"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={tahsilatForm.odeme_tutari}
                       onChange={(e) =>
-                        setTahsilatForm({ ...tahsilatForm, odeme_tutari: parseFloat(e.target.value) })
+                        setTahsilatForm({ ...tahsilatForm, odeme_tutari: parseTRNumber(e.target.value) ?? 0 })
                       }
+                      placeholder="0,00"
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       {tahsilatForm.odeme_tutari >= toplamBorc ? 'Tam Ödeme' : 'Kısmi Ödeme'}

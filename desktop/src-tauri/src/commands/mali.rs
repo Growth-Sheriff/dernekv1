@@ -794,8 +794,8 @@ fn get_kur_degeri(
     ))
 }
 
-// Helper: Kasa bakiyesini yeniden hesapla
-fn update_kasa_bakiye(
+// Helper: Kasa bakiyesini yeniden hesapla (diğer modüller de çağırabilir).
+pub(crate) fn update_kasa_bakiye(
     conn: &mut SqliteConnection,
     kasa_id: &str,
 ) -> Result<(), diesel::result::Error> {
@@ -1189,41 +1189,18 @@ pub async fn update_gelir(
             ))
             .execute(conn)?;
 
-        // Eski kasanın bakiyesini güncelle (geliri düş)
-        use crate::db::schema::kasalar;
-        diesel::sql_query(
-            "UPDATE kasalar 
-             SET toplam_gelir = COALESCE(toplam_gelir, 0.0) - ?1,
-                 fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) - ?2,
-                 bakiye = bakiye - ?3,
-                 updated_at = ?4
-             WHERE id = ?5"
-        )
-        .bind::<diesel::sql_types::Double, _>(eski_tutar)
-        .bind::<diesel::sql_types::Double, _>(eski_tutar)
-        .bind::<diesel::sql_types::Double, _>(eski_tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&eski_kasa_id)
-        .execute(conn)?;
-
-        // Yeni kasanın bakiyesini güncelle (geliri ekle)
-        diesel::sql_query(
-            "UPDATE kasalar 
-             SET toplam_gelir = COALESCE(toplam_gelir, 0.0) + ?1,
-                 fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) + ?2,
-                 bakiye = bakiye + ?3,
-                 updated_at = ?4
-             WHERE id = ?5"
-        )
-        .bind::<diesel::sql_types::Double, _>(yeni_tutar)
-        .bind::<diesel::sql_types::Double, _>(yeni_tutar)
-        .bind::<diesel::sql_types::Double, _>(yeni_tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&yeni_kasa_id)
-        .execute(conn)?;
+        // Bakiyeleri inline hesaplamak yerine gelirler SUM'ından yeniden hesapla —
+        // eski_tutar/yeni_tutar aritmetiği ile stale fiziksel_bakiye + toplam_gelir drift etmesini önler.
+        // Not: Eski kasa ile yeni kasa farklı olabilir (gelir başka kasaya taşınmış); ikisini de güncelle.
+        update_kasa_bakiye(conn, &eski_kasa_id)?;
+        if yeni_kasa_id != eski_kasa_id {
+            update_kasa_bakiye(conn, &yeni_kasa_id)?;
+        }
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
+
+    let _ = eski_tutar; // bilgi amaçlı tutuluyor; artık inline aritmetik yok
 
     let updated = gelirler
         .find(&id)
@@ -1282,41 +1259,16 @@ pub async fn update_gider(
             ))
             .execute(conn)?;
 
-        // Eski kasanın bakiyesini güncelle (gideri geri ekle)
-        use crate::db::schema::kasalar;
-        diesel::sql_query(
-            "UPDATE kasalar 
-             SET toplam_gider = COALESCE(toplam_gider, 0.0) - ?1,
-                 fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) + ?2,
-                 bakiye = bakiye + ?3,
-                 updated_at = ?4
-             WHERE id = ?5"
-        )
-        .bind::<diesel::sql_types::Double, _>(eski_tutar)
-        .bind::<diesel::sql_types::Double, _>(eski_tutar)
-        .bind::<diesel::sql_types::Double, _>(eski_tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&eski_kasa_id)
-        .execute(conn)?;
-
-        // Yeni kasanın bakiyesini güncelle (gideri çıkar)
-        diesel::sql_query(
-            "UPDATE kasalar 
-             SET toplam_gider = COALESCE(toplam_gider, 0.0) + ?1,
-                 fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) - ?2,
-                 bakiye = bakiye - ?3,
-                 updated_at = ?4
-             WHERE id = ?5"
-        )
-        .bind::<diesel::sql_types::Double, _>(yeni_tutar)
-        .bind::<diesel::sql_types::Double, _>(yeni_tutar)
-        .bind::<diesel::sql_types::Double, _>(yeni_tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&yeni_kasa_id)
-        .execute(conn)?;
+        // Bakiyeleri giderler SUM'ından yeniden hesapla — inline aritmetikten kaçın.
+        update_kasa_bakiye(conn, &eski_kasa_id)?;
+        if yeni_kasa_id != eski_kasa_id {
+            update_kasa_bakiye(conn, &yeni_kasa_id)?;
+        }
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
+
+    let _ = (eski_tutar, yeni_tutar);
 
     let updated = giderler
         .find(&id)

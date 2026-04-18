@@ -400,112 +400,93 @@ pub fn create_cari_hareket(
     let pool = db.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    diesel::sql_query(
-        "INSERT INTO cari_hareketler (id, tenant_id, cari_id, hareket_tipi, tarih, tutar, kalan, aciklama, belge_no, kasa_id, is_active, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&new_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&cari_id)
-    .bind::<diesel::sql_types::Text, _>(&hareket_tipi)
-    .bind::<diesel::sql_types::Text, _>(&tarih)
-    .bind::<diesel::sql_types::Double, _>(tutar)
-    .bind::<diesel::sql_types::Double, _>(tutar)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&aciklama)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&belge_no)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&kasa_id)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
-    .map_err(|e| e.to_string())?;
-
-    // Cari bakiye güncelle
-    if hareket_tipi == "Borç" {
+    // Tüm işlem tek transaction — kasa, cari, gelir atomic güncelleniyor.
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
         diesel::sql_query(
-            "UPDATE cariler SET borc_bakiye = COALESCE(borc_bakiye, 0) + ?1, updated_at = ?2 WHERE id = ?3"
+            "INSERT INTO cari_hareketler (id, tenant_id, cari_id, hareket_tipi, tarih, tutar, kalan, aciklama, belge_no, kasa_id, is_active, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12)"
         )
-        .bind::<diesel::sql_types::Double, _>(tutar)
-        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&new_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
         .bind::<diesel::sql_types::Text, _>(&cari_id)
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
-    } else {
-        diesel::sql_query(
-            "UPDATE cariler SET alacak_bakiye = COALESCE(alacak_bakiye, 0) + ?1, updated_at = ?2 WHERE id = ?3"
-        )
+        .bind::<diesel::sql_types::Text, _>(&hareket_tipi)
+        .bind::<diesel::sql_types::Text, _>(&tarih)
         .bind::<diesel::sql_types::Double, _>(tutar)
+        .bind::<diesel::sql_types::Double, _>(tutar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&aciklama)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&belge_no)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&kasa_id)
         .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&cari_id)
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
-    }
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(conn)?;
 
-    // Kasa seçilmişse, Alacak tipinde (tahsilat) kasaya gelir kaydı oluştur.
-    // Borç tipinde iseniz (cari'ye borç yazma = kasa'dan gider çıkışı) burada kasa hareketi oluşturulmaz —
-    // borçlandırma genellikle kasa dışında fatura/belge sebebiyle yapılır.
-    if hareket_tipi == "Alacak" {
-        if let Some(ref k_id) = kasa_id {
-            let gelir_id = Uuid::new_v4().to_string();
-            let cari_unvan: String = diesel::sql_query(
-                "SELECT unvan FROM cariler WHERE id = ?1 AND tenant_id = ?2"
+        // Cari bakiye güncelle
+        if hareket_tipi == "Borç" {
+            diesel::sql_query(
+                "UPDATE cariler SET borc_bakiye = COALESCE(borc_bakiye, 0) + ?1, updated_at = ?2 WHERE id = ?3"
             )
+            .bind::<diesel::sql_types::Double, _>(tutar)
+            .bind::<diesel::sql_types::Text, _>(&now)
             .bind::<diesel::sql_types::Text, _>(&cari_id)
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-            .get_result::<CariUnvan>(&mut conn)
-            .map(|r| r.unvan)
-            .unwrap_or_else(|_| "Cari".to_string());
-
-            let gelir_aciklama = match &aciklama {
-                Some(a) if !a.is_empty() => format!("Cari tahsilatı: {} — {}", cari_unvan, a),
-                _ => format!("Cari tahsilatı: {}", cari_unvan),
-            };
-
+            .execute(conn)?;
+        } else {
             diesel::sql_query(
-                "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tarih, tutar, aciklama, makbuz_no, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, 'CARI_TAHSILAT', ?4, ?5, ?6, ?7, ?8, ?9)"
-            )
-            .bind::<diesel::sql_types::Text, _>(&gelir_id)
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-            .bind::<diesel::sql_types::Text, _>(k_id)
-            .bind::<diesel::sql_types::Text, _>(&tarih)
-            .bind::<diesel::sql_types::Double, _>(tutar)
-            .bind::<diesel::sql_types::Text, _>(&gelir_aciklama)
-            .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&belge_no)
-            .bind::<diesel::sql_types::Text, _>(&now)
-            .bind::<diesel::sql_types::Text, _>(&now)
-            .execute(&mut conn)
-            .map_err(|e| e.to_string())?;
-
-            // cari_hareketler.gelir_id ile bağla
-            diesel::sql_query(
-                "UPDATE cari_hareketler SET gelir_id = ?1, updated_at = ?2 WHERE id = ?3"
-            )
-            .bind::<diesel::sql_types::Text, _>(&gelir_id)
-            .bind::<diesel::sql_types::Text, _>(&now)
-            .bind::<diesel::sql_types::Text, _>(&new_id)
-            .execute(&mut conn)
-            .map_err(|e| e.to_string())?;
-
-            // Kasa bakiyesini güncelle: toplam_gelir'e ekle, sonra update_kasa_bakiye-benzeri hesap
-            diesel::sql_query(
-                "UPDATE kasalar
-                 SET toplam_gelir = COALESCE(toplam_gelir, 0.0) + ?1,
-                     fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) + ?2,
-                     serbest_bakiye = COALESCE(serbest_bakiye, 0.0) + ?3,
-                     bakiye = COALESCE(bakiye, 0.0) + ?4,
-                     updated_at = ?5
-                 WHERE id = ?6 AND tenant_id = ?7"
+                "UPDATE cariler SET alacak_bakiye = COALESCE(alacak_bakiye, 0) + ?1, updated_at = ?2 WHERE id = ?3"
             )
             .bind::<diesel::sql_types::Double, _>(tutar)
-            .bind::<diesel::sql_types::Double, _>(tutar)
-            .bind::<diesel::sql_types::Double, _>(tutar)
-            .bind::<diesel::sql_types::Double, _>(tutar)
             .bind::<diesel::sql_types::Text, _>(&now)
-            .bind::<diesel::sql_types::Text, _>(k_id)
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-            .execute(&mut conn)
-            .map_err(|e| e.to_string())?;
+            .bind::<diesel::sql_types::Text, _>(&cari_id)
+            .execute(conn)?;
         }
-    }
+
+        // Kasa seçilmişse ve tahsilat ise, kasaya gelir kaydı oluştur + bakiye'yi SUM'dan yeniden hesapla.
+        if hareket_tipi == "Alacak" {
+            if let Some(ref k_id) = kasa_id {
+                let gelir_id = Uuid::new_v4().to_string();
+                let cari_unvan: String = diesel::sql_query(
+                    "SELECT unvan FROM cariler WHERE id = ?1 AND tenant_id = ?2"
+                )
+                .bind::<diesel::sql_types::Text, _>(&cari_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .get_result::<CariUnvan>(conn)
+                .map(|r| r.unvan)
+                .unwrap_or_else(|_| "Cari".to_string());
+
+                let gelir_aciklama = match &aciklama {
+                    Some(a) if !a.is_empty() => format!("Cari tahsilatı: {} — {}", cari_unvan, a),
+                    _ => format!("Cari tahsilatı: {}", cari_unvan),
+                };
+
+                diesel::sql_query(
+                    "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tarih, tutar, aciklama, makbuz_no, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, 'CARI_TAHSILAT', ?4, ?5, ?6, ?7, ?8, ?9)"
+                )
+                .bind::<diesel::sql_types::Text, _>(&gelir_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .bind::<diesel::sql_types::Text, _>(k_id)
+                .bind::<diesel::sql_types::Text, _>(&tarih)
+                .bind::<diesel::sql_types::Double, _>(tutar)
+                .bind::<diesel::sql_types::Text, _>(&gelir_aciklama)
+                .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&belge_no)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .execute(conn)?;
+
+                // cari_hareketler.gelir_id ile bağla
+                diesel::sql_query(
+                    "UPDATE cari_hareketler SET gelir_id = ?1, updated_at = ?2 WHERE id = ?3"
+                )
+                .bind::<diesel::sql_types::Text, _>(&gelir_id)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&new_id)
+                .execute(conn)?;
+
+                // Kasa bakiyesini gelirler SUM'ından yeniden hesapla (direkt += yerine).
+                crate::commands::mali::update_kasa_bakiye(conn, k_id)?;
+            }
+        }
+
+        Ok(())
+    }).map_err(|e| format!("Cari hareket kaydedilemedi: {}", e))?;
 
     Ok(new_id)
 }

@@ -1,4 +1,7 @@
--- Add version column for optimistic locking on aidat_takip
-ALTER TABLE aidat_takip ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+-- Migration 025: Add index for aidat_takip version column (optimistic locking)
+--
+-- NOT: `version` kolonu migration 008'de zaten eklenmişti. Bu migration eskiden
+-- yine ADD COLUMN yapıyordu ve "duplicate column" hatası veriyordu. Sadece
+-- indeks garantisi bırakıyoruz; CREATE INDEX IF NOT EXISTS idempotent.
 
-CREATE INDEX idx_aidat_version ON aidat_takip(id, version);
+CREATE INDEX IF NOT EXISTS idx_aidat_version ON aidat_takip(id, version);

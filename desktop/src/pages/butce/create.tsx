@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { FormField, FormSection, FormActions } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { parseTRNumber } from '@/lib/formatters';
 
 export const ButceCreatePage: React.FC = () => {
   const navigate = useNavigate();
@@ -47,10 +48,10 @@ export const ButceCreatePage: React.FC = () => {
           yil: formData.yil,
           kategori: formData.kategori,
           aciklama: formData.aciklama || null,
-          planlanan_gelir: formData.planlanan_gelir ? parseFloat(formData.planlanan_gelir) : 0,
-          planlanan_gider: formData.planlanan_gider ? parseFloat(formData.planlanan_gider) : 0,
-          gerceklesen_gelir: formData.gerceklesen_gelir ? parseFloat(formData.gerceklesen_gelir) : null,
-          gerceklesen_gider: formData.gerceklesen_gider ? parseFloat(formData.gerceklesen_gider) : null,
+          planlanan_gelir: parseTRNumber(formData.planlanan_gelir) ?? 0,
+          planlanan_gider: parseTRNumber(formData.planlanan_gider) ?? 0,
+          gerceklesen_gelir: parseTRNumber(formData.gerceklesen_gelir),
+          gerceklesen_gider: parseTRNumber(formData.gerceklesen_gider),
           notlar: formData.notlar || null,
         },
       });
@@ -136,23 +137,21 @@ export const ButceCreatePage: React.FC = () => {
             <FormSection title="Planlanan Tutarlar" columns={2}>
               <FormField label="Planlanan Gelir (₺)">
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.planlanan_gelir}
                   onChange={(e) => handleChange('planlanan_gelir', e.target.value)}
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
               
               <FormField label="Planlanan Gider (₺)">
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.planlanan_gider}
                   onChange={(e) => handleChange('planlanan_gider', e.target.value)}
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
             </FormSection>
@@ -165,23 +164,21 @@ export const ButceCreatePage: React.FC = () => {
             >
               <FormField label="Gerçekleşen Gelir (₺)">
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.gerceklesen_gelir}
                   onChange={(e) => handleChange('gerceklesen_gelir', e.target.value)}
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
               
               <FormField label="Gerçekleşen Gider (₺)">
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={formData.gerceklesen_gider}
                   onChange={(e) => handleChange('gerceklesen_gider', e.target.value)}
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
+                  placeholder="0,00"
                 />
               </FormField>
             </FormSection>
