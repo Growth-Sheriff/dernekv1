@@ -1543,35 +1543,39 @@ pub async fn delete_virman(
         .bind::<diesel::sql_types::Text, _>(&record_id)
         .execute(conn)?;
 
-        // Kaynak kasaya parayı geri ekle (virman_cikis azalt, bakiye artar)
+        // Cross-currency için: kaynak = virman.tutar, hedef = hedef_tutar (varsa)
+        let kaynak_miktar = virman.tutar;
+        let hedef_miktar = virman.hedef_tutar.unwrap_or(virman.tutar);
+
+        // Kaynak kasaya parayı geri ekle (kaynak para biriminde)
         use crate::db::schema::kasalar;
         diesel::sql_query(
-            "UPDATE kasalar 
+            "UPDATE kasalar
              SET virman_cikis = COALESCE(virman_cikis, 0.0) - ?1,
                  fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) + ?2,
                  bakiye = bakiye + ?3,
                  updated_at = ?4
              WHERE id = ?5"
         )
-        .bind::<diesel::sql_types::Double, _>(virman.tutar)
-        .bind::<diesel::sql_types::Double, _>(virman.tutar)
-        .bind::<diesel::sql_types::Double, _>(virman.tutar)
+        .bind::<diesel::sql_types::Double, _>(kaynak_miktar)
+        .bind::<diesel::sql_types::Double, _>(kaynak_miktar)
+        .bind::<diesel::sql_types::Double, _>(kaynak_miktar)
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&virman.kaynak_kasa_id)
         .execute(conn)?;
 
-        // Hedef kasadan parayı çıkar (virman_giris azalt, bakiye azalır)
+        // Hedef kasadan parayı çıkar (hedef para biriminde — kur uygulanmış)
         diesel::sql_query(
-            "UPDATE kasalar 
+            "UPDATE kasalar
              SET virman_giris = COALESCE(virman_giris, 0.0) - ?1,
                  fiziksel_bakiye = COALESCE(fiziksel_bakiye, 0.0) - ?2,
                  bakiye = bakiye - ?3,
                  updated_at = ?4
              WHERE id = ?5"
         )
-        .bind::<diesel::sql_types::Double, _>(virman.tutar)
-        .bind::<diesel::sql_types::Double, _>(virman.tutar)
-        .bind::<diesel::sql_types::Double, _>(virman.tutar)
+        .bind::<diesel::sql_types::Double, _>(hedef_miktar)
+        .bind::<diesel::sql_types::Double, _>(hedef_miktar)
+        .bind::<diesel::sql_types::Double, _>(hedef_miktar)
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&virman.hedef_kasa_id)
         .execute(conn)?;
@@ -1622,9 +1626,9 @@ pub async fn recalculate_kasa_bakiye(
     .map(|r| r.total)
     .unwrap_or(0.0);
 
-    // 3. Virman giriş (bu kasaya transfer edilen)
+    // 3. Virman giriş (bu kasaya transfer edilen — kur uygulanmış hedef tutar)
     let virman_giris = diesel::sql_query(
-        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM virmanlar WHERE hedef_kasa_id = ?1 AND tenant_id = ?2"
+        "SELECT COALESCE(SUM(COALESCE(hedef_tutar, tutar)), 0.0) as total FROM virmanlar WHERE hedef_kasa_id = ?1 AND tenant_id = ?2 AND (is_deleted IS NULL OR is_deleted = 0)"
     )
     .bind::<diesel::sql_types::Text, _>(&kasa_id)
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -1632,9 +1636,9 @@ pub async fn recalculate_kasa_bakiye(
     .map(|r| r.total)
     .unwrap_or(0.0);
 
-    // 4. Virman çıkış (bu kasadan başka kasaya transfer)
+    // 4. Virman çıkış (bu kasadan başka kasaya transfer — kaynak para birimi)
     let virman_cikis = diesel::sql_query(
-        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM virmanlar WHERE kaynak_kasa_id = ?1 AND tenant_id = ?2"
+        "SELECT COALESCE(SUM(tutar), 0.0) as total FROM virmanlar WHERE kaynak_kasa_id = ?1 AND tenant_id = ?2 AND (is_deleted IS NULL OR is_deleted = 0)"
     )
     .bind::<diesel::sql_types::Text, _>(&kasa_id)
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)

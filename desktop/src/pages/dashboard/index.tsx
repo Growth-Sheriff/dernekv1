@@ -138,8 +138,16 @@ const GlowingCounter: React.FC<{
   color: string;
   decimals?: number;
 }> = ({ value, suffix = '', color, decimals = 0 }) => {
-  const animatedValue = useCountUp(Math.round(value), 1500);
-  const displayValue = decimals > 0 ? (animatedValue / Math.pow(10, decimals)).toFixed(decimals) : animatedValue.toLocaleString('tr-TR');
+  // Ondalık hassasiyeti korumak için değeri 10^decimals ile çarpıp integer üzerinde animate et,
+  // sonra bölerek TR locale ile formatla. Bu hem animasyonu korur hem doğru TR gösterim sağlar.
+  const factor = Math.pow(10, decimals);
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const animatedInt = useCountUp(Math.round(safeValue * factor), 1500);
+  const realValue = animatedInt / factor;
+  const displayValue = realValue.toLocaleString('tr-TR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 
   return (
     <div className="relative">
@@ -457,7 +465,7 @@ export const DashboardIndexPage: React.FC = () => {
                     <Wallet className="w-5 h-5 text-white" />
                   </div>
                 </div>
-                <GlowingCounter value={kasaStats.toplam_bakiye * 100} suffix="₺" color="#8b5cf6" decimals={2} />
+                <GlowingCounter value={kasaStats.toplam_bakiye} suffix="₺" color="#8b5cf6" decimals={2} />
                 <div className="mt-2 flex items-center gap-1 text-xs text-emerald-600">
                   <ArrowUpRight className="w-3 h-3" />
                   <span>+8% bu ay</span>
@@ -471,7 +479,7 @@ export const DashboardIndexPage: React.FC = () => {
                     <TrendingUp className="w-5 h-5 text-white" />
                   </div>
                 </div>
-                <GlowingCounter value={kasaStats.toplam_gelir * 100} suffix="₺" color="#10b981" decimals={2} />
+                <GlowingCounter value={kasaStats.toplam_gelir} suffix="₺" color="#10b981" decimals={2} />
                 <div className="mt-2 flex items-center gap-1 text-xs text-emerald-600">
                   <Flame className="w-3 h-3" />
                   <span>Rekor ay!</span>
@@ -485,7 +493,7 @@ export const DashboardIndexPage: React.FC = () => {
                     <TrendingDown className="w-5 h-5 text-white" />
                   </div>
                 </div>
-                <GlowingCounter value={kasaStats.toplam_gider * 100} suffix="₺" color="#f59e0b" decimals={2} />
+                <GlowingCounter value={kasaStats.toplam_gider} suffix="₺" color="#f59e0b" decimals={2} />
                 <div className="mt-2 flex items-center gap-1 text-xs text-red-500">
                   <ArrowDownRight className="w-3 h-3" />
                   <span>-5% bu ay</span>

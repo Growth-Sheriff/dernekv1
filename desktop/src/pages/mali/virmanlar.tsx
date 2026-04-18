@@ -21,6 +21,7 @@ import { SmartFilterPanel, FilterDefinition, FilterValue, DEFAULT_DATE_PRESETS }
 import { SmartTable, SmartTableColumn, SmartTableAction, BulkAction } from '@/components/ui/smart-table';
 import { exportToExcel, exportToPDF } from '@/utils/export';
 import { cn } from '@/lib/utils';
+import { parseTRNumber } from '@/lib/formatters';
 
 // ============ TYPES ============
 interface Kasa {
@@ -39,10 +40,16 @@ interface Virman {
   hedef_kasa_adi?: string;
   tarih: string;
   tutar: number;
+  hedef_tutar?: number;
+  kaynak_para_birimi?: string;
+  hedef_para_birimi?: string;
   aciklama?: string;
   uygulanan_kur?: number;
   created_at: string;
 }
+
+const PARA_SEMBOL: Record<string, string> = { TRY: '₺', USD: '$', EUR: '€', GBP: '£' };
+const sembol = (kod?: string) => (kod && PARA_SEMBOL[kod]) || kod || '₺';
 
 interface KurBilgisi { kur_degeri: number; kaynak_para_birimi: string; hedef_para_birimi: string; }
 
@@ -270,13 +277,21 @@ export const MaliVirmanlarPage: React.FC = () => {
       ),
     },
     {
-      id: 'tutar', header: 'Tutar', accessor: 'tutar', width: 150, align: 'right', sortable: true,
-      render: (value, row) => (
-        <div className="text-right">
-          <span className="text-lg font-bold text-indigo-600">₺{value?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
-          {row.uygulanan_kur && row.uygulanan_kur !== 1 && <p className="text-xs text-gray-500 mt-0.5">Kur: {row.uygulanan_kur.toFixed(4)}</p>}
-        </div>
-      ),
+      id: 'tutar', header: 'Tutar', accessor: 'tutar', width: 200, align: 'right', sortable: true,
+      render: (value, row) => {
+        const kSem = sembol(row.kaynak_para_birimi);
+        const hSem = sembol(row.hedef_para_birimi);
+        const farkli = row.hedef_para_birimi && row.kaynak_para_birimi && row.hedef_para_birimi !== row.kaynak_para_birimi;
+        return (
+          <div className="text-right">
+            <span className="text-lg font-bold text-indigo-600">{kSem}{value?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+            {farkli && row.hedef_tutar != null && (
+              <p className="text-xs text-green-700 mt-0.5">→ {hSem}{row.hedef_tutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</p>
+            )}
+            {row.uygulanan_kur && row.uygulanan_kur !== 1 && <p className="text-xs text-gray-500">Kur: {row.uygulanan_kur.toFixed(4)}</p>}
+          </div>
+        );
+      },
     },
     { id: 'aciklama', header: 'Açıklama', accessor: 'aciklama', width: 180, render: (value) => <p className="text-sm text-gray-600 truncate">{value || '-'}</p> },
   ], [kasalar]);
@@ -290,13 +305,14 @@ export const MaliVirmanlarPage: React.FC = () => {
     e.preventDefault();
     if (!tenant || !kaynakKasaId || !hedefKasaId || !tutar) { toast.error('Tüm alanları doldurun!'); return; }
     if (kaynakKasaId === hedefKasaId) { toast.error('Aynı kasa olamaz!'); return; }
-    const tutarNum = parseFloat(tutar);
-    if (isNaN(tutarNum) || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
+    const tutarNum = parseTRNumber(tutar);
+    if (tutarNum === null || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
     if (kaynakKasa && tutarNum > kaynakKasa.serbest_bakiye) { toast.error(`Yetersiz bakiye! Serbest: ₺${kaynakKasa.serbest_bakiye.toLocaleString('tr-TR')}`); return; }
 
     try {
       const data: any = { kaynak_kasa_id: kaynakKasaId, hedef_kasa_id: hedefKasaId, tarih, tutar: tutarNum, aciklama: aciklama || null };
-      if (farkliParaBirimi && manuelKurAktif && manuelKur) data.uygulanan_kur = parseFloat(manuelKur);
+      const manuelKurNum = parseTRNumber(manuelKur);
+      if (farkliParaBirimi && manuelKurAktif && manuelKurNum !== null) data.uygulanan_kur = manuelKurNum;
       else if (farkliParaBirimi && kurBilgisi) data.uygulanan_kur = kurBilgisi.kur_degeri;
       await invoke('create_virman', { tenantIdParam: tenant.id, data });
 
@@ -332,9 +348,9 @@ export const MaliVirmanlarPage: React.FC = () => {
 
   const hesaplananHedefTutar = useMemo(() => {
     if (!tutar || !farkliParaBirimi) return null;
-    const tutarNum = parseFloat(tutar);
-    const kurDegeri = manuelKurAktif ? parseFloat(manuelKur) : kurBilgisi?.kur_degeri;
-    if (!kurDegeri || isNaN(tutarNum)) return null;
+    const tutarNum = parseTRNumber(tutar);
+    const kurDegeri = manuelKurAktif ? parseTRNumber(manuelKur) : kurBilgisi?.kur_degeri;
+    if (!kurDegeri || tutarNum === null) return null;
     return tutarNum * kurDegeri;
   }, [tutar, farkliParaBirimi, manuelKur, manuelKurAktif, kurBilgisi]);
 
@@ -485,7 +501,7 @@ export const MaliVirmanlarPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tutar *</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{kaynakKasa?.para_birimi || '₺'}</span>
-                  <input type="number" step="0.01" value={tutar} onChange={(e) => setTutar(e.target.value)} className="w-full h-10 rounded-lg border pl-8 pr-3" required />
+                  <input type="text" inputMode="decimal" value={tutar} onChange={(e) => setTutar(e.target.value)} placeholder="0,00" className="w-full h-10 rounded-lg border pl-8 pr-3" required />
                 </div>
               </div>
             </div>
@@ -500,7 +516,7 @@ export const MaliVirmanlarPage: React.FC = () => {
                   <input type="checkbox" id="manuel-kur" checked={manuelKurAktif} onChange={(e) => setManuelKurAktif(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded" />
                   <label htmlFor="manuel-kur" className="text-sm text-indigo-700">Manuel kur gir</label>
                 </div>
-                <input type="number" step="0.0001" value={manuelKur} onChange={(e) => setManuelKur(e.target.value)} disabled={!manuelKurAktif} className="w-full h-10 rounded-lg border px-3 disabled:bg-gray-100" />
+                <input type="text" inputMode="decimal" value={manuelKur} onChange={(e) => setManuelKur(e.target.value)} disabled={!manuelKurAktif} placeholder="0,0000" className="w-full h-10 rounded-lg border px-3 disabled:bg-gray-100" />
                 {hesaplananHedefTutar && <p className="text-sm text-indigo-700">Hedef: <strong>{hedefKasa?.para_birimi} {hesaplananHedefTutar.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</strong></p>}
               </div>
             )}

@@ -27,6 +27,7 @@ import { PAGE_KEYS } from '@/types/columnConfig';
 import { exportToExcel, exportToPDF } from '@/utils/export';
 import { EvrakEkleme, EvrakData } from '@/components/common/EvrakEkleme';
 import { cn } from '@/lib/utils';
+import { parseTRNumber } from '@/lib/formatters';
 
 // ============ TYPES ============
 interface Gider {
@@ -121,6 +122,11 @@ export const GiderlerPage: React.FC = () => {
   const [demirbasEkle, setDemirbasEkle] = useState(false);
   const [demirbasAdi, setDemirbasAdi] = useState('');
   const [demirbasKategori, setDemirbasKategori] = useState('');
+  const [demirbasAdet, setDemirbasAdet] = useState('1');
+  const [demirbasMarkaModel, setDemirbasMarkaModel] = useState('');
+  const [demirbasSeriNo, setDemirbasSeriNo] = useState('');
+  const [demirbasKonum, setDemirbasKonum] = useState('');
+  const [demirbasNotlar, setDemirbasNotlar] = useState('');
   const [evrakData, setEvrakData] = useState<EvrakData | null>(null);
   // Eksik alanlar - Faz 1
   const [odeyen, setOdeyen] = useState('');
@@ -279,8 +285,8 @@ export const GiderlerPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenant || !kasaId || !tutar) { toast.error('Kasa ve Tutar zorunludur!'); return; }
-    const tutarNum = parseFloat(tutar);
-    if (isNaN(tutarNum) || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
+    const tutarNum = parseTRNumber(tutar);
+    if (tutarNum === null || tutarNum <= 0) { toast.error('Geçerli tutar girin!'); return; }
     try {
       // Gider verileri - TÜM ALANLAR
       const giderData = {
@@ -315,15 +321,35 @@ export const GiderlerPage: React.FC = () => {
       });
 
       if (demirbasEkle && demirbasAdi) {
-        await invoke('create_demirbas', {
-          tenantIdParam: tenant.id,
-          data: { ad: demirbasAdi, kategori: demirbasKategori || null, alis_tarihi: tarih, alis_bedeli: tutarNum, durum: DEMIRBAS_DURUMLARI.AKTIF, gider_id: giderId, fatura_no: faturaNo || null },
-        });
+        const adet = Math.max(1, Math.floor(Number(demirbasAdet) || 1));
+        const birimBedel = adet > 0 ? tutarNum / adet : tutarNum;
+        // Adet > 1 ise her bir demirbaş için ayrı kayıt oluştur (seri_no, konum bağımsız takip edilebilsin)
+        for (let i = 1; i <= adet; i++) {
+          const ad = adet > 1 ? `${demirbasAdi} #${i}` : demirbasAdi;
+          await invoke('create_demirbas', {
+            tenantIdParam: tenant.id,
+            data: {
+              ad,
+              kategori: demirbasKategori || null,
+              marka_model: demirbasMarkaModel || null,
+              seri_no: adet === 1 ? (demirbasSeriNo || null) : null,
+              konum: demirbasKonum || null,
+              notlar: demirbasNotlar || null,
+              alis_tarihi: tarih,
+              alis_bedeli: birimBedel,
+              durum: DEMIRBAS_DURUMLARI.AKTIF,
+              gider_id: giderId,
+              fatura_no: faturaNo || null,
+            },
+          });
+        }
       }
       toast.success('Gider eklendi!');
       setShowForm(false);
       // Formu temizle
-      setTutar(''); setAciklama(''); setFaturaNo(''); setDemirbasEkle(false); setDemirbasAdi(''); setDemirbasKategori('');
+      setTutar(''); setAciklama(''); setFaturaNo(''); setDemirbasEkle(false);
+      setDemirbasAdi(''); setDemirbasKategori(''); setDemirbasAdet('1');
+      setDemirbasMarkaModel(''); setDemirbasSeriNo(''); setDemirbasKonum(''); setDemirbasNotlar('');
       setOdeyen(''); setIslemNo(''); setAltKategori(''); setNotlar('');
       setSelectedUyeId(''); setEvrakData(null);
       loadGiderler();
@@ -512,7 +538,7 @@ export const GiderlerPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tutar *</label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₺</span>
-                  <input type="number" step="0.01" value={tutar} onChange={(e) => setTutar(e.target.value)} className="w-full h-10 rounded-lg border pl-7 pr-3" required />
+                  <input type="text" inputMode="decimal" value={tutar} onChange={(e) => setTutar(e.target.value)} placeholder="0,00" className="w-full h-10 rounded-lg border pl-7 pr-3" required />
                 </div>
               </div>
               <div>
@@ -579,12 +605,18 @@ export const GiderlerPage: React.FC = () => {
                 <label htmlFor="dmb-ekle" className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer"><Package className="w-4 h-4" />Demirbaş kaydı oluştur</label>
               </div>
               {demirbasEkle && (
-                <div className="bg-gray-50 rounded-xl p-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
+                <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Demirbaş Adı *</label>
-                      <input type="text" value={demirbasAdi} onChange={(e) => setDemirbasAdi(e.target.value)} className="w-full h-10 rounded-lg border px-3" required={demirbasEkle} />
+                      <input type="text" value={demirbasAdi} onChange={(e) => setDemirbasAdi(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="Örn: Ofis sandalyesi" required={demirbasEkle} />
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Adet *</label>
+                      <input type="number" min="1" step="1" value={demirbasAdet} onChange={(e) => setDemirbasAdet(e.target.value)} className="w-full h-10 rounded-lg border px-3" required={demirbasEkle} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
                       <select value={demirbasKategori} onChange={(e) => setDemirbasKategori(e.target.value)} className="w-full h-10 rounded-lg border px-3">
@@ -592,7 +624,32 @@ export const GiderlerPage: React.FC = () => {
                         {DEMIRBAS_KATEGORI_LISTESI.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Marka / Model</label>
+                      <input type="text" value={demirbasMarkaModel} onChange={(e) => setDemirbasMarkaModel(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="Örn: IKEA Markus" />
+                    </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Seri No {Number(demirbasAdet) > 1 && <span className="text-xs text-gray-400">(adet {'>'} 1 ise boş bırakın)</span>}
+                      </label>
+                      <input type="text" value={demirbasSeriNo} onChange={(e) => setDemirbasSeriNo(e.target.value)} disabled={Number(demirbasAdet) > 1} className="w-full h-10 rounded-lg border px-3 disabled:bg-gray-100" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Konum</label>
+                      <input type="text" value={demirbasKonum} onChange={(e) => setDemirbasKonum(e.target.value)} className="w-full h-10 rounded-lg border px-3" placeholder="Örn: Yönetim Ofisi" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notlar</label>
+                    <textarea value={demirbasNotlar} onChange={(e) => setDemirbasNotlar(e.target.value)} rows={2} className="w-full rounded-lg border px-3 py-2 resize-none" />
+                  </div>
+                  {Number(demirbasAdet) > 1 && (
+                    <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">
+                      ℹ️ {demirbasAdet} adet ayrı demirbaş kaydı oluşturulacak. Her biri için birim bedel: ₺{(parseTRNumber(tutar) ?? 0) / Math.max(1, Number(demirbasAdet))}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

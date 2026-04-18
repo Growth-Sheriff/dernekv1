@@ -551,6 +551,7 @@ fn create_default_gider_turleri(
         ("Kırtasiye", "KIRTASIYE", "Kırtasiye malzemeleri"),
         ("Etkinlik Gideri", "ETKINLIK", "Etkinlik masrafları"),
         ("Bakım Onarım", "BAKIM", "Bakım ve onarım giderleri"),
+        ("Demirbaş", "DEMIRBAS", "Demirbaş alımları (mobilya, elektronik, ekipman)"),
         ("Diğer Giderler", "DIGER", "Diğer gider kalemleri"),
     ];
 

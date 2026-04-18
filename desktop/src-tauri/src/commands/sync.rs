@@ -892,6 +892,9 @@ fn upsert_virman(
     let tutar = data.get("tutar").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let aciklama = data.get("aciklama").and_then(|v| v.as_str());
     let uygulanan_kur = data.get("uygulanan_kur").and_then(|v| v.as_f64());
+    let hedef_tutar = data.get("hedef_tutar").and_then(|v| v.as_f64());
+    let kaynak_para_birimi = data.get("kaynak_para_birimi").and_then(|v| v.as_str());
+    let hedef_para_birimi = data.get("hedef_para_birimi").and_then(|v| v.as_str());
     let created_at = data.get("created_at").and_then(|v| v.as_str()).unwrap_or(now);
 
     let exists: i64 = diesel::sql_query("SELECT COUNT(*) as count FROM virmanlar WHERE id = ?1")
@@ -903,8 +906,8 @@ fn upsert_virman(
     if exists > 0 {
         diesel::sql_query(
             "UPDATE virmanlar SET kaynak_kasa_id = ?1, hedef_kasa_id = ?2, tarih = ?3, tutar = ?4, \
-             aciklama = ?5, uygulanan_kur = ?6, updated_at = ?7 \
-             WHERE id = ?8 AND tenant_id = ?9"
+             aciklama = ?5, uygulanan_kur = ?6, hedef_tutar = ?7, kaynak_para_birimi = ?8, hedef_para_birimi = ?9, updated_at = ?10 \
+             WHERE id = ?11 AND tenant_id = ?12"
         )
         .bind::<diesel::sql_types::Text, _>(kaynak_kasa_id)
         .bind::<diesel::sql_types::Text, _>(hedef_kasa_id)
@@ -912,6 +915,9 @@ fn upsert_virman(
         .bind::<diesel::sql_types::Double, _>(tutar)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(uygulanan_kur)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(hedef_tutar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kaynak_para_birimi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(hedef_para_birimi)
         .bind::<diesel::sql_types::Text, _>(now)
         .bind::<diesel::sql_types::Text, _>(record_id)
         .bind::<diesel::sql_types::Text, _>(tenant_id)
@@ -920,8 +926,8 @@ fn upsert_virman(
     } else {
         diesel::sql_query(
             "INSERT INTO virmanlar (id, tenant_id, kaynak_kasa_id, hedef_kasa_id, tarih, tutar, \
-             aciklama, uygulanan_kur, is_deleted, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)"
+             aciklama, uygulanan_kur, hedef_tutar, kaynak_para_birimi, hedef_para_birimi, is_deleted, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12, ?13)"
         )
         .bind::<diesel::sql_types::Text, _>(record_id)
         .bind::<diesel::sql_types::Text, _>(tenant_id)
@@ -931,6 +937,9 @@ fn upsert_virman(
         .bind::<diesel::sql_types::Double, _>(tutar)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(aciklama)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(uygulanan_kur)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(hedef_tutar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(kaynak_para_birimi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(hedef_para_birimi)
         .bind::<diesel::sql_types::Text, _>(created_at)
         .bind::<diesel::sql_types::Text, _>(now)
         .execute(conn)

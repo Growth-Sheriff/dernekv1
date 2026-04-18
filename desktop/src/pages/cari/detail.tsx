@@ -1,8 +1,9 @@
 import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowLeft, Building2, Pencil, Phone, Mail, MapPin, Plus, CreditCard, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowLeft, Building2, Pencil, Phone, Mail, MapPin, CreditCard, TrendingUp, TrendingDown, FileMinus } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import { parseTRNumber } from '@/lib/formatters';
 
 interface Cari {
   id: string;
@@ -39,6 +40,13 @@ interface CariHareket {
   belge_no?: string;
 }
 
+interface Kasa {
+  id: string;
+  kasa_adi: string;
+  para_birimi: string;
+  bakiye?: number;
+}
+
 export const CariDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -46,9 +54,17 @@ export const CariDetailPage: React.FC = () => {
   
   const [cari, setCari] = React.useState<Cari | null>(null);
   const [hareketler, setHareketler] = React.useState<CariHareket[]>([]);
+  const [kasalar, setKasalar] = React.useState<Kasa[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [showOdemeModal, setShowOdemeModal] = React.useState(false);
+  const [showBorcModal, setShowBorcModal] = React.useState(false);
   const [odemeForm, setOdemeForm] = React.useState({
+    tutar: '',
+    aciklama: '',
+    belge_no: '',
+    kasa_id: '',
+  });
+  const [borcForm, setBorcForm] = React.useState({
     tutar: '',
     aciklama: '',
     belge_no: '',
@@ -65,7 +81,7 @@ export const CariDetailPage: React.FC = () => {
     
     try {
       setLoading(true);
-      const [cariResult, hareketResult] = await Promise.all([
+      const [cariResult, hareketResult, kasalarResult] = await Promise.all([
         invoke<Cari>('get_cari', {
           tenantIdParam: tenant.id,
           cariId: id,
@@ -74,9 +90,16 @@ export const CariDetailPage: React.FC = () => {
           tenantIdParam: tenant.id,
           cariId: id,
         }),
+        invoke<Kasa[]>('get_kasalar', {
+          tenantIdParam: tenant.id,
+        }).catch(() => [] as Kasa[]),
       ]);
       setCari(cariResult);
       setHareketler(hareketResult);
+      setKasalar(kasalarResult);
+      if (kasalarResult.length > 0 && !odemeForm.kasa_id) {
+        setOdemeForm(prev => ({ ...prev, kasa_id: kasalarResult[0].id }));
+      }
     } catch (error) {
       console.error('Failed to load cari:', error);
     } finally {
@@ -85,22 +108,60 @@ export const CariDetailPage: React.FC = () => {
   };
 
   const handleOdemeKaydet = async () => {
-    if (!tenant || !id || !odemeForm.tutar) return;
-    
+    if (!tenant || !id) return;
+    const tutarNum = parseTRNumber(odemeForm.tutar);
+    if (tutarNum === null || tutarNum <= 0) {
+      alert('Geçerli bir tutar girin');
+      return;
+    }
+    if (!odemeForm.kasa_id) {
+      alert('Ödemenin yatırılacağı kasayı seçin');
+      return;
+    }
+
     try {
       await invoke('odeme_kaydet_cari', {
         tenantIdParam: tenant.id,
         cariId: id,
-        tutar: parseFloat(odemeForm.tutar),
+        tutar: tutarNum,
         aciklama: odemeForm.aciklama || null,
         belgeNo: odemeForm.belge_no || null,
+        kasaId: odemeForm.kasa_id,
       });
       setShowOdemeModal(false);
-      setOdemeForm({ tutar: '', aciklama: '', belge_no: '' });
+      setOdemeForm({ tutar: '', aciklama: '', belge_no: '', kasa_id: kasalar[0]?.id || '' });
       loadData();
     } catch (error) {
       console.error('Failed to save odeme:', error);
       alert('Ödeme kaydedilemedi: ' + error);
+    }
+  };
+
+  const handleBorcEkle = async () => {
+    if (!tenant || !id) return;
+    const tutarNum = parseTRNumber(borcForm.tutar);
+    if (tutarNum === null || tutarNum <= 0) {
+      alert('Geçerli bir tutar girin');
+      return;
+    }
+
+    try {
+      await invoke('create_cari_hareket', {
+        tenantIdParam: tenant.id,
+        cariId: id,
+        hareketTipi: 'Borç',
+        tutar: tutarNum,
+        aciklama: borcForm.aciklama || null,
+        belgeNo: borcForm.belge_no || null,
+        tarih: null,
+        kasaId: null,
+      });
+      setShowBorcModal(false);
+      setBorcForm({ tutar: '', aciklama: '', belge_no: '' });
+      loadData();
+    } catch (error) {
+      console.error('Failed to add borç:', error);
+      alert('Borç eklenemedi: ' + error);
     }
   };
 
@@ -181,11 +242,18 @@ export const CariDetailPage: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => setShowBorcModal(true)}
+            className="px-4 py-2 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 flex items-center gap-2"
+          >
+            <FileMinus className="h-4 w-4" />
+            Borç Ekle
+          </button>
+          <button
             onClick={() => setShowOdemeModal(true)}
-            className="px-4 py-2 border rounded-lg hover:bg-gray-50 flex items-center gap-2"
+            className="px-4 py-2 border border-green-200 text-green-700 rounded-lg hover:bg-green-50 flex items-center gap-2"
           >
             <CreditCard className="h-4 w-4" />
-            Ödeme Kaydet
+            Ödeme Al (Tahsilat)
           </button>
           <button
             onClick={() => navigate(`/cari/${id}/edit`)}
@@ -367,23 +435,38 @@ export const CariDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Ödeme Modal */}
+      {/* Ödeme Modal (Tahsilat) */}
       {showOdemeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Ödeme Kaydet</h3>
+            <h3 className="text-lg font-medium mb-1">Tahsilat Kaydet</h3>
+            <p className="text-sm text-gray-500 mb-4">Cariden gelen ödeme seçilen kasaya gelir olarak kaydedilir.</p>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Kasa (hedef) <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={odemeForm.kasa_id}
+                  onChange={(e) => setOdemeForm({ ...odemeForm, kasa_id: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Kasa seçin</option>
+                  {kasalar.map(k => (
+                    <option key={k.id} value={k.id}>{k.kasa_adi} ({k.para_birimi})</option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tutar <span className="text-red-500">*</span>
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={odemeForm.tutar}
                   onChange={(e) => setOdemeForm({ ...odemeForm, tutar: e.target.value })}
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -423,7 +506,70 @@ export const CariDetailPage: React.FC = () => {
                 onClick={handleOdemeKaydet}
                 className="btn-macos"
               >
-                Kaydet
+                Tahsilatı Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Borç Ekle Modal */}
+      {showBorcModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-1">Borç Ekle</h3>
+            <p className="text-sm text-gray-500 mb-4">Cariye borç kaydı (fatura/belge ile) ekler. Kasa hareketi oluşmaz.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tutar <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={borcForm.tutar}
+                  onChange={(e) => setBorcForm({ ...borcForm, tutar: e.target.value })}
+                  placeholder="0,00"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Açıklama
+                </label>
+                <input
+                  type="text"
+                  value={borcForm.aciklama}
+                  onChange={(e) => setBorcForm({ ...borcForm, aciklama: e.target.value })}
+                  placeholder="Borç sebebi / fatura detayı"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Belge No
+                </label>
+                <input
+                  type="text"
+                  value={borcForm.belge_no}
+                  onChange={(e) => setBorcForm({ ...borcForm, belge_no: e.target.value })}
+                  placeholder="Fatura no"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowBorcModal(false)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleBorcEkle}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Borcu Kaydet
               </button>
             </div>
           </div>

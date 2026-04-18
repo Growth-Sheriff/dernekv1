@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { parseTRNumber } from '@/lib/formatters';
 
 // ============ TYPES ============
 interface QuickStats {
@@ -414,8 +415,8 @@ const QuickTransactionModal: React.FC<{
             return;
         }
 
-        const tutarNum = parseFloat(tutar);
-        if (isNaN(tutarNum) || tutarNum <= 0) {
+        const tutarNum = parseTRNumber(tutar);
+        if (tutarNum === null || tutarNum <= 0) {
             toast.error('Geçerli bir tutar girin!');
             return;
         }
@@ -502,8 +503,9 @@ const QuickTransactionModal: React.FC<{
                         <div className="relative">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₺</span>
                             <Input
-                                type="number"
-                                placeholder="0"
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0,00"
                                 value={tutar}
                                 onChange={(e) => setTutar(e.target.value)}
                                 className="pl-7 text-xl font-bold"

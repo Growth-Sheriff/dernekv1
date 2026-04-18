@@ -26,6 +26,7 @@ import { GELIRLER_PAGE_CONFIG, PAGE_PRESETS, GELIRLER_COLUMNS } from '@/config/c
 import { PAGE_KEYS } from '@/types/columnConfig';
 import { exportToExcel, exportToPDF, columnsToExportFormat } from '@/utils/export';
 import { EvrakEkleme, EvrakData } from '@/components/common/EvrakEkleme';
+import { parseTRNumber } from '@/lib/formatters';
 
 // ============ TYPES ============
 interface Gelir {
@@ -394,8 +395,8 @@ export const GelirlerPage: React.FC = () => {
       return;
     }
 
-    const tutarNum = parseFloat(tutar);
-    if (isNaN(tutarNum) || tutarNum <= 0) {
+    const tutarNum = parseTRNumber(tutar);
+    if (tutarNum === null || tutarNum <= 0) {
       toast.error('Geçerli bir tutar girin!');
       return;
     }
@@ -618,12 +619,12 @@ export const GelirlerPage: React.FC = () => {
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₺</span>
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={tutar}
                     onChange={(e) => setTutar(e.target.value)}
                     className="w-full h-10 rounded-lg border border-gray-200 pl-7 pr-3 focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    placeholder="0.00"
+                    placeholder="0,00"
                     required
                   />
                 </div>

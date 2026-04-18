@@ -4,6 +4,85 @@
  */
 
 /**
+ * Kullanıcının TR locale (virgül) veya EN locale (nokta) girişini güvenli şekilde
+ * sayıya çevirir. Binlik ayırıcıları temizler, tek ondalık ayırıcıyı noktaya normalize eder.
+ *
+ * Örnekler:
+ *   "100"        -> 100
+ *   "100,50"     -> 100.5
+ *   "100.50"     -> 100.5
+ *   "1.234,56"   -> 1234.56  (TR binlik + ondalık)
+ *   "1,234.56"   -> 1234.56  (EN binlik + ondalık)
+ *   "1.234"      -> 1234     (3 hane: binlik kabul edilir)
+ *   "100.5"      -> 100.5    (1-2 hane: ondalık kabul edilir)
+ *   ""           -> null
+ *   "abc"        -> null
+ */
+export function parseTRNumber(input: string | number | null | undefined): number | null {
+  if (input === null || input === undefined) return null;
+  if (typeof input === 'number') return isFinite(input) ? input : null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+
+  // Negatif işareti ayır
+  const isNegative = raw.startsWith('-');
+  let s = isNegative ? raw.slice(1) : raw;
+  // Sadece rakam, nokta ve virgül bırak
+  s = s.replace(/[^\d.,]/g, '');
+  if (!s) return null;
+
+  const hasComma = s.includes(',');
+  const hasDot = s.includes('.');
+
+  if (hasComma && hasDot) {
+    // Hem virgül hem nokta var — son görülen = ondalık ayırıcı
+    const lastComma = s.lastIndexOf(',');
+    const lastDot = s.lastIndexOf('.');
+    if (lastComma > lastDot) {
+      // TR format: 1.234,56 -> noktaları sil, virgülü noktaya çevir
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // EN format: 1,234.56 -> virgülleri sil
+      s = s.replace(/,/g, '');
+    }
+  } else if (hasComma) {
+    // Sadece virgül: binlik mi ondalık mı?
+    const parts = s.split(',');
+    if (parts.length > 2) {
+      // Birden fazla virgül = binlik ayırıcı, hepsini sil (1,234,567)
+      s = s.replace(/,/g, '');
+    } else {
+      const decimals = parts[1] ?? '';
+      if (decimals.length === 3 && parts[0].length > 0) {
+        // "1,234" — 3 hane, binlik kabul et
+        s = s.replace(',', '');
+      } else {
+        // "100,50" — ondalık
+        s = s.replace(',', '.');
+      }
+    }
+  } else if (hasDot) {
+    // Sadece nokta: binlik mi ondalık mı?
+    const parts = s.split('.');
+    if (parts.length > 2) {
+      // Birden fazla nokta = TR binlik ayırıcı (1.234.567)
+      s = s.replace(/\./g, '');
+    } else {
+      const decimals = parts[1] ?? '';
+      if (decimals.length === 3 && parts[0].length > 0) {
+        // "1.234" — 3 hane, binlik kabul et (TR)
+        s = s.replace('.', '');
+      }
+      // aksi halde ondalık olarak bırak ("100.50")
+    }
+  }
+
+  const n = Number(s);
+  if (!isFinite(n)) return null;
+  return isNegative ? -n : n;
+}
+
+/**
  * Tarih formatı seçenekleri
  */
 export type DateFormatType = 'short' | 'long' | 'full' | 'iso' | 'input';

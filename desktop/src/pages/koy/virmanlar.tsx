@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Plus, ArrowLeftRight, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { parseTRNumber } from '@/lib/formatters';
 
 interface KoyVirman {
   id: string;
@@ -90,6 +91,12 @@ export const KoyVirmanlarPage: React.FC = () => {
       return;
     }
     
+    const tutarNum = parseTRNumber(tutar);
+    if (tutarNum === null || tutarNum <= 0) {
+      alert('Geçerli bir tutar girin!');
+      return;
+    }
+
     try {
       await invoke('create_koy_virman', {
         tenantIdParam: tenant.id,
@@ -97,7 +104,7 @@ export const KoyVirmanlarPage: React.FC = () => {
           kaynak_kasa_id: gonderenKasaId,
           hedef_kasa_id: alanKasaId,
           tarih,
-          tutar: parseFloat(tutar),
+          tutar: tutarNum,
           aciklama: aciklama || null,
         },
       });
@@ -211,12 +218,12 @@ export const KoyVirmanlarPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Tutar *</label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={tutar}
                   onChange={(e) => setTutar(e.target.value)}
                   className="input-macos"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   required
                 />
               </div>

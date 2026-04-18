@@ -419,17 +419,24 @@ pub async fn get_aidat_ozet(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
+    // Bugünün tarihini al — son_odeme_tarihi geçmiş ve hala ödenmemiş olanlar "gecikti" kabul edilir.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+
     let result = diesel::sql_query(
-        "SELECT 
+        "SELECT
             COALESCE(SUM(tutar), 0.0) as toplam_tutar,
             COALESCE(SUM(odenen), 0.0) as toplam_odenen,
             COUNT(CASE WHEN durum = 'odendi' THEN 1 END) as odenen_adet,
-            COUNT(CASE WHEN durum = 'gecikti' THEN 1 END) as geciken_adet
-         FROM aidat_takip 
-         WHERE tenant_id = ?1 AND yil = ?2"
+            COUNT(CASE WHEN (durum = 'odenmedi' OR durum = 'kismi_odendi')
+                           AND son_odeme_tarihi IS NOT NULL
+                           AND son_odeme_tarihi < ?3 THEN 1 END) as geciken_adet
+         FROM aidat_takip
+         WHERE tenant_id = ?1 AND yil = ?2
+           AND (durum IS NULL OR durum != 'iptal')"
     )
     .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
     .bind::<diesel::sql_types::Integer, _>(yil)
+    .bind::<diesel::sql_types::Text, _>(&today)
     .get_result::<AidatOzetQuery>(&mut conn)
     .map_err(|e| e.to_string())?;
 
@@ -1126,54 +1133,67 @@ pub async fn kaydet_aidat_odeme_with_gelir(
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
-    
+
     use crate::db::schema::aidat_takip::dsl::*;
-    
-    // Mevcut aidat kaydını çek
-    let current_aidat = aidat_takip
-        .filter(id.eq(&data.aidat_id))
-        .filter(tenant_id.eq(&tenant_id_param))
-        .first::<AidatTakip>(&mut conn)
-        .map_err(|e| format!("Aidat kaydı bulunamadı: {}", e))?;
-    
-    // Üye bilgisini al
-    let uye: crate::db::models::Uye = diesel::sql_query("SELECT * FROM uyeler WHERE id = ?1")
-        .bind::<diesel::sql_types::Text, _>(&current_aidat.uye_id)
-        .get_result(&mut conn)
-        .map_err(|e| format!("Üye bulunamadı: {}", e))?;
-    
-    // Yeni ödenen miktarı hesapla
-    let yeni_odenen = current_aidat.odenen + data.tutar;
-    let yeni_kalan = current_aidat.tutar - yeni_odenen;
-    let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else { "kismi_odendi" };
-    
-    // Aidat kaydını güncelle
-    diesel::sql_query(
-        "UPDATE aidat_takip 
-         SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, updated_at = ?5
-         WHERE id = ?6"
-    )
-    .bind::<diesel::sql_types::Double, _>(yeni_odenen)
-    .bind::<diesel::sql_types::Double, _>(yeni_kalan)
-    .bind::<diesel::sql_types::Text, _>(yeni_durum)
-    .bind::<diesel::sql_types::Text, _>(&data.odeme_tarihi)
-    .bind::<diesel::sql_types::Text, _>(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
-    .bind::<diesel::sql_types::Text, _>(&data.aidat_id)
-    .execute(&mut conn)
-    .map_err(|e| format!("Aidat güncellenemedi: {}", e))?;
-    
-    // Gelir kaydı oluştur + Kasa güncelle
-    let created_gelir_id = create_gelir_from_aidat(
-        &mut conn,
-        &tenant_id_param,
-        &data.kasa_id,
-        &current_aidat,
-        &uye.id,
-        data.tutar,
-        &data.odeme_tarihi,
-    )?;
-    
-    Ok(created_gelir_id)
+
+    // Transaction + optimistic locking — iki kullanıcı aynı anda ödeme yaparsa ikisi de sağlam olur.
+    let result: Result<String, String> = conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // 1. Mevcut aidat kaydını çek (version dahil)
+        let current_aidat = aidat_takip
+            .filter(id.eq(&data.aidat_id))
+            .filter(tenant_id.eq(&tenant_id_param))
+            .first::<AidatTakip>(conn)?;
+
+        // 2. Üye bilgisini al
+        let uye: crate::db::models::Uye = diesel::sql_query("SELECT * FROM uyeler WHERE id = ?1")
+            .bind::<diesel::sql_types::Text, _>(&current_aidat.uye_id)
+            .get_result(conn)?;
+
+        let yeni_odenen = current_aidat.odenen + data.tutar;
+        let yeni_kalan = current_aidat.tutar - yeni_odenen;
+        let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else { "kismi_odendi" };
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        // 3. Aidat kaydını güncelle (version check ile)
+        let affected = diesel::sql_query(
+            "UPDATE aidat_takip
+             SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, version = version + 1, updated_at = ?5
+             WHERE id = ?6 AND version = ?7"
+        )
+        .bind::<diesel::sql_types::Double, _>(yeni_odenen)
+        .bind::<diesel::sql_types::Double, _>(yeni_kalan)
+        .bind::<diesel::sql_types::Text, _>(yeni_durum)
+        .bind::<diesel::sql_types::Text, _>(&data.odeme_tarihi)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&data.aidat_id)
+        .bind::<diesel::sql_types::Integer, _>(current_aidat.version)
+        .execute(conn)?;
+
+        if affected == 0 {
+            // Başka bir kullanıcı aynı anda ödeme yapmış — çakışma
+            return Err(diesel::result::Error::RollbackTransaction);
+        }
+
+        // 4. Gelir + kasa güncelleme (çift sayım olmaması için update_kasa_bakiye kullanır)
+        let created_gelir_id = create_gelir_from_aidat(
+            conn,
+            &tenant_id_param,
+            &data.kasa_id,
+            &current_aidat,
+            &uye.id,
+            data.tutar,
+            &data.odeme_tarihi,
+        ).map_err(|_| diesel::result::Error::RollbackTransaction)?;
+
+        Ok(created_gelir_id)
+    })
+    .map_err(|e| match e {
+        diesel::result::Error::RollbackTransaction =>
+            "Ödeme çakışması: bu aidat kaydı bu arada değiştirilmiş. Lütfen sayfayı yenileyip tekrar deneyin.".to_string(),
+        other => format!("Ödeme kaydedilemedi: {}", other),
+    });
+
+    result
 }
 
 // ============================================================================
@@ -1284,16 +1304,7 @@ pub async fn add_aidat_odeme_with_gelir(
         .bind::<diesel::sql_types::Text, _>(&now)
         .execute(conn)?;
 
-        // 3. Kasa bakiyesini güncelle
-        diesel::sql_query(
-            "UPDATE kasalar SET bakiye = bakiye + ?1, toplam_gelir = toplam_gelir + ?1, updated_at = ?2 WHERE id = ?3"
-        )
-        .bind::<diesel::sql_types::Double, _>(odeme_tutari)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&kasa_id)
-        .execute(conn)?;
-
-        // 4. Aidat kaydını güncelle (gelir_id ile ilişkilendir) + version check
+        // 3. Aidat kaydını güncelle (gelir_id ile ilişkilendir) + version check
         let affected = diesel::sql_query(
             "UPDATE aidat_takip
              SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, gelir_id = ?5, version = version + 1, updated_at = ?6
@@ -1312,6 +1323,12 @@ pub async fn add_aidat_odeme_with_gelir(
         if affected == 0 {
             return Err(diesel::result::Error::RollbackTransaction);
         }
+
+        // 4. Kasa bakiyesini tek kaynaktan (gelirler SUM) yeniden hesapla.
+        // NOT: Eski kod burada hem `bakiye += ?` hem `toplam_gelir += ?` yapıyordu ve ayrıca
+        // gelirler tablosuna kayıt ekliyordu — bu çift sayım demekti.
+        update_kasa_bakiye(conn, &kasa_id)
+            .map_err(|_| diesel::result::Error::RollbackTransaction)?;
 
         Ok(())
     })
@@ -1933,7 +1950,7 @@ pub async fn coklu_donem_tahsilat(
                 let odeme_miktari = kalan.min(kalan_odeme);
                 let yeni_odenen = odenen + odeme_miktari;
                 let yeni_kalan = kalan - odeme_miktari;
-                let yeni_durum = if yeni_kalan <= 0.0 { "ödendi" } else { "kısmi" };
+                let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else { "kismi_odendi" };
 
                 // Aidat kaydını güncelle
                 diesel::sql_query(

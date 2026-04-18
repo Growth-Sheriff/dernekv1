@@ -151,15 +151,16 @@ export const CariCreatePage: React.FC = () => {
           cariId: id,
           data,
         });
+        navigate(`/cari/${id}`);
+        toast.success('Cari güncellendi');
       } else {
-        await invoke('create_cari', {
+        const newId = await invoke<string>('create_cari', {
           tenantIdParam: tenant.id,
           data,
         });
+        toast.success('Cari oluşturuldu — şimdi borç ekleyebilir veya tahsilat alabilirsiniz');
+        navigate(`/cari/${newId}`);
       }
-      
-      navigate('/cari');
-      toast.success(isEdit ? 'Cari güncellendi' : 'Cari oluşturuldu');
     } catch (error) {
       console.error('Failed to save cari:', error);
       toast.error('Cari kaydedilemedi: ' + error);

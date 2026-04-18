@@ -90,22 +90,42 @@ export const KasaRaporPage: React.FC = () => {
       let giderler: any[] = [];
       try {
         const result = await invoke<any[]>('get_giderler', { tenantIdParam: tenant.id });
-        giderler = result.filter(g => 
+        giderler = result.filter(g =>
           kasaIds.includes(g.kasa_id) &&
           new Date(g.tarih) >= new Date(baslangicTarihi) &&
           new Date(g.tarih) <= new Date(bitisTarihi)
         );
       } catch (e) {}
-      
-      const toplamGiren = gelirler.reduce((sum, g) => sum + (g.tutar || 0), 0);
-      const toplamCikan = giderler.reduce((sum, g) => sum + (g.tutar || 0), 0);
-      
-      // Mevcut bakiye
+
+      // Virmanlar (kasa arası transferler) — hem giriş hem çıkış etkisi var
+      let virmanlar: any[] = [];
+      try {
+        const result = await invoke<any[]>('get_virmanlar', { tenantIdParam: tenant.id, skip: 0, limit: 100000 });
+        virmanlar = (result || []).filter(v =>
+          (kasaIds.includes(v.kaynak_kasa_id) || kasaIds.includes(v.hedef_kasa_id)) &&
+          new Date(v.tarih) >= new Date(baslangicTarihi) &&
+          new Date(v.tarih) <= new Date(bitisTarihi)
+        );
+      } catch (e) {}
+
+      const toplamGelir = gelirler.reduce((sum, g) => sum + (g.tutar || 0), 0);
+      const toplamGider = giderler.reduce((sum, g) => sum + (g.tutar || 0), 0);
+      const virmanGiris = virmanlar
+        .filter(v => kasaIds.includes(v.hedef_kasa_id))
+        .reduce((sum, v) => sum + ((v.hedef_tutar ?? v.tutar) || 0), 0);
+      const virmanCikis = virmanlar
+        .filter(v => kasaIds.includes(v.kaynak_kasa_id))
+        .reduce((sum, v) => sum + (v.tutar || 0), 0);
+
+      const toplamGiren = toplamGelir + virmanGiris;
+      const toplamCikan = toplamGider + virmanCikis;
+
+      // Mevcut bakiye (kapanış)
       const mevcutBakiye = kasalar
         .filter(k => kasaIds.includes(k.id))
         .reduce((sum, k) => sum + (k.bakiye || 0), 0);
-      
-      // Açılış bakiyesi (mevcut - giren + çıkan)
+
+      // Açılış bakiyesi = kapanış - (dönem içi giren) + (dönem içi çıkan)
       const acilisBakiye = mevcutBakiye - toplamGiren + toplamCikan;
       
       // Günlük hareketler

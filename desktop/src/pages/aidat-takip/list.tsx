@@ -9,6 +9,7 @@ import { ColumnSettingsModal } from '@/components/common/ColumnSettingsModal';
 import { useColumnConfig } from '@/hooks/useColumnConfig';
 import { AIDAT_TAKIP_PAGE_CONFIG, PAGE_PRESETS } from '@/config/columnDefinitions';
 import { PAGE_KEYS } from '@/types/columnConfig';
+import { parseTRNumber } from '@/lib/formatters';
 
 interface AidatTakip {
   id: string;
@@ -156,8 +157,8 @@ export const AidatTakipPage: React.FC = () => {
       return;
     }
     
-    const tutarNum = parseFloat(tutar);
-    if (isNaN(tutarNum) || tutarNum <= 0) {
+    const tutarNum = parseTRNumber(tutar);
+    if (tutarNum === null || tutarNum <= 0) {
       alert('❌ Geçerli bir tutar girin!');
       return;
     }
@@ -337,12 +338,12 @@ export const AidatTakipPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Aidat Tutarı *</label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={tutar}
                   onChange={(e) => setTutar(e.target.value)}
                   className="input-macos"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   required
                 />
               </div>

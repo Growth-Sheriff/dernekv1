@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Plus, TrendingUp, Pencil, Trash2, FileDown } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { parseTRNumber } from '@/lib/formatters';
 
 interface KoyGelir {
   id: string;
@@ -95,7 +96,7 @@ export const KoyGelirlerPage: React.FC = () => {
           kasa_id: kasaId,
           tarih,
           gelir_turu: gelirTuru,
-          tutar: parseFloat(tutar),
+          tutar: parseTRNumber(tutar) ?? 0,
           aciklama,
         },
       });
@@ -141,7 +142,7 @@ export const KoyGelirlerPage: React.FC = () => {
           kasa_id: kasaId,
           tarih,
           gelir_turu: gelirTuru,
-          tutar: parseFloat(tutar),
+          tutar: parseTRNumber(tutar) ?? 0,
           aciklama,
         },
       });
@@ -281,12 +282,12 @@ export const KoyGelirlerPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Tutar *</label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={tutar}
                   onChange={(e) => setTutar(e.target.value)}
                   className="input-macos"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   required
                 />
               </div>
@@ -377,12 +378,12 @@ export const KoyGelirlerPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Tutar *</label>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={tutar}
                   onChange={(e) => setTutar(e.target.value)}
                   className="input-macos"
-                  placeholder="0.00"
+                  placeholder="0,00"
                   required
                 />
               </div>
