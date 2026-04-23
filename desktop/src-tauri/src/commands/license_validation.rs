@@ -48,9 +48,10 @@ pub fn validate_license(
             }
         }).to_string();
         
-        // INSERT OR IGNORE
+        // INSERT OR IGNORE — kolon adları migration 007 schema'sıyla uyumlu
+        // (start_date NOT NULL, expiry_date nullable).
         let _ = diesel::sql_query(
-            "INSERT OR IGNORE INTO licenses (id, license_key, plan, max_users, max_records, features, is_active, starts_at, created_at, updated_at)
+            "INSERT OR IGNORE INTO licenses (id, license_key, plan, max_users, max_records, features, is_active, start_date, created_at, updated_at)
              VALUES (?1, ?2, 'LOCAL', 5, 10000, ?3, 1, ?4, ?5, ?6)"
         )
         .bind::<diesel::sql_types::Text, _>(&uuid)
@@ -101,8 +102,8 @@ pub fn validate_license(
     }
 
     let result = diesel::sql_query(
-        "SELECT license_key, plan, is_active, expires_at, max_users, max_records, features 
-         FROM licenses 
+        "SELECT license_key, plan, is_active, expiry_date as expires_at, max_users, max_records, features
+         FROM licenses
          WHERE license_key = ?1"
     )
     .bind::<diesel::sql_types::Text, _>(&key)
@@ -171,7 +172,7 @@ fn create_demo_license(key: &str, conn: &mut diesel::sqlite::SqliteConnection) -
     let tenant_id = format!("temp-{}", uuid::Uuid::new_v4().to_string());
     
     diesel::sql_query(
-        "INSERT INTO licenses (id, tenant_id, license_key, plan, max_users, max_records, starts_at, is_active, created_at, updated_at)
+        "INSERT INTO licenses (id, tenant_id, license_key, plan, max_users, max_records, start_date, is_active, created_at, updated_at)
          VALUES (?1, ?2, ?3, 'LOCAL', 5, 10000, ?4, 1, ?5, ?6)"
     )
     .bind::<diesel::sql_types::Text, _>(&uuid)

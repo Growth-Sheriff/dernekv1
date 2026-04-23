@@ -106,6 +106,9 @@ pub fn init_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             updated_at TEXT NOT NULL,
             FOREIGN KEY (tenant_id) REFERENCES tenants(id)
         )",
+        // NOT: Kolon adları migration 007 + 020 ile uyumlu — aynı DB üzerinde
+        // iki yerden CREATE TABLE koşulduğunda schema drift olmasın diye.
+        // (start_date / expiry_date kullanılıyor, starts_at / expires_at DEĞİL.)
         "CREATE TABLE IF NOT EXISTS licenses (
             id TEXT PRIMARY KEY NOT NULL,
             license_key TEXT NOT NULL UNIQUE,
@@ -113,8 +116,7 @@ pub fn init_database(conn: &mut SqliteConnection) -> QueryResult<()> {
             plan TEXT NOT NULL DEFAULT 'STANDARD',
             mode TEXT DEFAULT 'local',
             is_active INTEGER NOT NULL DEFAULT 0,
-            starts_at TEXT,
-            expires_at TEXT,
+            start_date TEXT,
             expiry_date TEXT,
             desktop_enabled INTEGER DEFAULT 1,
             web_enabled INTEGER DEFAULT 0,
