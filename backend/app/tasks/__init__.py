@@ -1,3 +1,0 @@
-"""
-Background Tasks (Celery/ARQ)
-"""

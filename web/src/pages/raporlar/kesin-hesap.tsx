@@ -75,7 +75,7 @@ export const KesinHesapPage: React.FC = () => {
           return a.odeme_tarihi && 
             new Date(a.odeme_tarihi) >= new Date(donemBaslangic) && 
             new Date(a.odeme_tarihi) <= new Date(donemBitis);
-        }).reduce((sum, a) => sum + (a.odenen_tutar || 0), 0);
+        }).reduce((sum, a) => sum + (a.odenen || 0), 0);
         
         if (aidatGelir > 0) {
           gelirlerByKategori['Aidat Gelirleri'] = (gelirlerByKategori['Aidat Gelirleri'] || 0) + aidatGelir;

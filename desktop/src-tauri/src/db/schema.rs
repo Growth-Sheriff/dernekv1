@@ -84,6 +84,7 @@ diesel::table! {
         gelir_id -> Nullable<Text>,
         aktarim_durumu -> Nullable<Text>,
         version -> Integer,
+        is_deleted -> Nullable<Integer>,
         created_at -> Text,
         updated_at -> Text,
     }
@@ -144,6 +145,7 @@ diesel::table! {
         tahakkuk_durumu -> Nullable<Text>,
         notlar -> Nullable<Text>,
         belge_id -> Nullable<Text>,
+        etkinlik_id -> Nullable<Text>,
         is_deleted -> Nullable<Integer>,
         created_at -> Text,
         updated_at -> Text,
@@ -180,6 +182,7 @@ diesel::table! {
         odeyen -> Nullable<Text>,
         notlar -> Nullable<Text>,
         belge_id -> Nullable<Text>,
+        etkinlik_id -> Nullable<Text>,
         is_deleted -> Nullable<Integer>,
         created_at -> Text,
         updated_at -> Text,

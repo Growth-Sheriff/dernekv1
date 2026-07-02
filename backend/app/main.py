@@ -64,10 +64,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS
+# CORS: BADER_CORS_ORIGINS="https://app.example.com,https://admin.example.com"
+# Env verilmezse (yerel geliştirme + Tauri desktop istemcisi) tüm originlere açık kalır.
+import os as _os
+_cors_origins = [o.strip() for o in _os.getenv("BADER_CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Configure for production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

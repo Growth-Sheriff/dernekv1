@@ -84,8 +84,8 @@ export const BilancoPage: React.FC = () => {
       let uyeAlacak = 0;
       try {
         const aidatlar = await invoke<any[]>('get_all_aidat', { tenantIdParam: tenant.id });
-        uyeAlacak = aidatlar.filter(a => a.durum !== 'Ödendi' && a.is_active !== false)
-          .reduce((sum, a) => sum + (a.tutar || 0) - (a.odenen_tutar || 0), 0);
+        uyeAlacak = aidatlar.filter(a => a.durum !== 'odendi' && a.durum !== 'iptal')
+          .reduce((sum, a) => sum + (a.tutar || 0) - (a.odenen || 0), 0);
       } catch (e) {
         // Aidat komutu yoksa
       }

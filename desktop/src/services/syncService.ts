@@ -26,6 +26,19 @@ interface ServerSyncChange {
     data: Record<string, any>;
     version: number;
     changed_at: string;
+    change_id?: string; // yerel sync_changes.id — ack eşlemesi için
+}
+
+/** Sunucu push sonucu tek kalem */
+interface ServerSyncItemResult {
+    table: string;
+    id: string;
+    status: string;
+    reason?: string;
+    version?: number;
+    change_id?: string;
+    server_version?: number;
+    server_data?: Record<string, any>;
 }
 
 /** Sunucu SyncRequest formatı */
@@ -41,9 +54,9 @@ interface ServerSyncRequest {
 interface ServerSyncResponse {
     status: string; // ok | partial | error
     server_time: string;
-    applied: Array<{ table: string; id: string; status: string; reason?: string }>;
-    rejected: Array<{ table: string; id: string; status: string; reason?: string }>;
-    conflicts: Array<{ table: string; id: string; status: string; reason?: string }>;
+    applied: ServerSyncItemResult[];
+    rejected: ServerSyncItemResult[];
+    conflicts: ServerSyncItemResult[];
     changes: ServerSyncChange[]; // Server → Client delta
 }
 
@@ -66,6 +79,8 @@ class SyncService {
     private stats: SyncStats = { pushed: 0, pulled: 0, failed: 0, lastSync: null };
     private lastSyncAt: string | null = null;
     private deviceId: string | null = null;
+    private failureCount: number = 0;
+    private nextRetryAt: number = 0;
 
     constructor() {
         window.addEventListener('online', () => {
@@ -137,8 +152,25 @@ class SyncService {
         const canSync = this.licenseMode === 'hybrid' && this.isOnline && !!this.token;
         if (!canSync) {
             console.log(`⚠️ Sync atlandı: mode=${this.licenseMode}, online=${this.isOnline}, token=${!!this.token}`);
+            return false;
         }
-        return canSync;
+        if (Date.now() < this.nextRetryAt) {
+            console.log(`⏳ Sync backoff: ${Math.ceil((this.nextRetryAt - Date.now()) / 1000)}s sonra tekrar denenecek`);
+            return false;
+        }
+        return true;
+    }
+
+    /** Başarısız istek sonrası üstel geri çekilme (30s → 15dk arası) */
+    private registerFailure() {
+        this.failureCount += 1;
+        const delayMs = Math.min(30_000 * 2 ** (this.failureCount - 1), 15 * 60_000);
+        this.nextRetryAt = Date.now() + delayMs;
+    }
+
+    private registerSuccess() {
+        this.failureCount = 0;
+        this.nextRetryAt = 0;
     }
 
     /**
@@ -184,9 +216,11 @@ class SyncService {
             if (!response.ok) {
                 const text = await response.text();
                 console.error(`❌ Sync API hatası: ${response.status} - ${text}`);
+                this.registerFailure();
                 return null;
             }
 
+            this.registerSuccess();
             const result: ServerSyncResponse = await response.json();
             console.log(`📡 Sync yanıtı: status=${result.status}, applied=${result.applied.length}, rejected=${result.rejected.length}, server_changes=${result.changes.length}`);
 
@@ -199,6 +233,7 @@ class SyncService {
             return result;
         } catch (error) {
             console.error('❌ Sync isteği başarısız:', error);
+            this.registerFailure();
             return null;
         }
     }
@@ -257,17 +292,27 @@ class SyncService {
                 return { pushed: 0, pulled: 0, failed: localChanges.length };
             }
 
-            // 3. Başarılı push'ları işaretle
-            const appliedIds = result.applied.map(a => a.id);
-            if (appliedIds.length > 0) {
+            // 3. Başarılı push'ları işaretle + satır versiyonlarını sunucu değerine çek
+            if (result.applied.length > 0) {
                 try {
                     await invoke('mark_changes_synced', {
                         tenantIdParam: tenantId,
-                        changeIds: appliedIds
+                        entries: result.applied.map(a => ({
+                            change_id: a.change_id,
+                            table: a.table,
+                            id: a.id,
+                            version: a.version
+                        }))
                     });
                 } catch (e) {
                     console.warn('mark_changes_synced hatası:', e);
                 }
+            }
+
+            // 3b. Çatışmalar: sunucu-kazanır — bekleyen yerel değişiklik düşürülür,
+            // sunucu kopyası yerel DB'ye uygulanır.
+            if (result.conflicts && result.conflicts.length > 0) {
+                await this.resolveConflicts(tenantId, result.conflicts);
             }
 
             // 4. Server'dan gelen değişiklikleri local DB'ye uygula
@@ -276,7 +321,7 @@ class SyncService {
             this.stats = {
                 pushed: result.applied.length,
                 pulled,
-                failed: result.rejected.length,
+                failed: result.rejected.length + (result.conflicts?.length || 0),
                 lastSync: new Date().toISOString()
             };
 
@@ -304,20 +349,58 @@ class SyncService {
 
             console.log(`📤 ${changes.length} bekleyen değişiklik bulundu`);
 
-            return changes.map(change => {
-                const data = typeof change.data === 'string' ? JSON.parse(change.data) : (change.data || {});
-                return {
-                    table: change.table_name,
-                    id: change.record_id,
-                    operation: this.actionToOperation(change.action as SyncAction),
-                    data: { ...data, tenant_id: tenantId },
-                    version: data.version || 0,
-                    changed_at: change.local_updated_at || new Date().toISOString()
-                };
-            });
+            // Rust get_pending_sync_changes zaten ServerSyncChange formatında döner
+            // (change_id, table, id, operation, data, version, changed_at)
+            return changes.map(change => ({
+                change_id: change.change_id,
+                table: change.table,
+                id: change.id,
+                operation: change.operation,
+                data: { ...(change.data || {}), tenant_id: tenantId },
+                version: change.version || 1,
+                changed_at: change.changed_at || new Date().toISOString()
+            }));
         } catch (error) {
             console.error('Pending changes alınamadı:', error);
             return [];
+        }
+    }
+
+    /**
+     * Çatışma çözümü: sunucu-kazanır.
+     * 1) Bekleyen yerel değişiklik kuyruktan düşürülür (tekrar push edilmesin),
+     * 2) Sunucunun kopyası yerel DB'ye uygulanır (versiyon dahil).
+     */
+    private async resolveConflicts(tenantId: string, conflicts: ServerSyncItemResult[]): Promise<void> {
+        try {
+            await invoke('mark_changes_synced', {
+                tenantIdParam: tenantId,
+                entries: conflicts.map(c => ({
+                    change_id: c.change_id,
+                    table: c.table,
+                    id: c.id
+                }))
+            });
+
+            const serverCopies = conflicts
+                .filter(c => c.server_data)
+                .map(c => ({
+                    table: c.table,
+                    id: c.id,
+                    operation: c.server_data!.is_deleted ? 'delete' : 'update',
+                    data: c.server_data!,
+                    version: c.server_version || 1,
+                    changed_at: (c.server_data!.updated_at as string) || new Date().toISOString()
+                }));
+
+            if (serverCopies.length > 0) {
+                await this.applyServerChanges(tenantId, serverCopies as ServerSyncChange[]);
+            }
+
+            console.warn(`⚠️ ${conflicts.length} çatışma sunucu-kazanır stratejisiyle çözüldü:`,
+                conflicts.map(c => `${c.table}/${c.id} (${c.reason})`).join(', '));
+        } catch (e) {
+            console.error('Çatışma çözümü hatası:', e);
         }
     }
 
@@ -335,35 +418,36 @@ class SyncService {
         }
     }
 
+    private notifyTimer: ReturnType<typeof setTimeout> | null = null;
+
     /**
-     * Değişikliği kuyruğa ekle ve varsa hemen senkronize et
+     * Yerel bir yazım gerçekleşti — kuyruk kaydı Rust komutunun transaction'ında
+     * zaten atıldı; burada yalnızca debounce'lu bir sync tetiklenir.
+     */
+    notifyLocalChange(): void {
+        if (!this.shouldSync()) return;
+        if (this.notifyTimer) clearTimeout(this.notifyTimer);
+        this.notifyTimer = setTimeout(() => {
+            this.notifyTimer = null;
+            this.fullSync();
+        }, 3000);
+    }
+
+    /**
+     * @deprecated Kuyruk kaydı artık Rust CRUD komutlarının transaction'ında
+     * otomatik atılıyor (db::outbox). Bu metot yalnızca geriye uyumluluk için
+     * duruyor: payload yok sayılır, kayıt DB'deki güncel haliyle kuyruklanır
+     * (tekilleştirme çift kaydı önler) ve debounce'lu sync tetiklenir.
      */
     async queueChange(
         tenantId: string,
         tableName: SyncTableName,
-        action: SyncAction,
-        data: SyncableRecord
+        _action: SyncAction,
+        _data: SyncableRecord
     ): Promise<void> {
-        try {
-            await invoke('queue_sync_change', {
-                tenantIdParam: tenantId,
-                change: {
-                    table_name: tableName,
-                    record_id: data.id,
-                    action: action,
-                    data: data,
-                    local_updated_at: new Date().toISOString()
-                }
-            });
-            console.log(`📝 Sync kuyruğuna eklendi: ${tableName}/${action}/${data.id}`);
-        } catch (error) {
-            console.error('Sync kuyruğuna ekleme hatası:', error);
-        }
-
-        // Online ve hybrid moddaysak hemen sync yap
-        if (this.shouldSync()) {
-            await this.fullSync();
-        }
+        void tenantId;
+        void tableName;
+        this.notifyLocalChange();
     }
 
     /**
@@ -407,7 +491,7 @@ class SyncService {
                         id: rec.id,
                         operation: 'insert',
                         data: { ...rec, tenant_id: tenantId },
-                        version: rec.version || 0,
+                        version: rec.version || 1,
                         changed_at: rec.updated_at || now
                     });
                 }

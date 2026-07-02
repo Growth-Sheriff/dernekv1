@@ -140,19 +140,8 @@ export const KasalarPage: React.FC = () => {
         });
       }
       
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        if (editingKasa) {
-          const kasalarList = await invoke<any[]>('get_kasalar', { tenantIdParam: tenant.id });
-          const updated = kasalarList?.find((k: any) => k.id === editingKasa.id);
-          if (updated) await syncService.queueChange(tenant.id, 'kasalar', 'update', updated);
-        } else {
-          const kasalarList = await invoke<any[]>('get_kasalar', { tenantIdParam: tenant.id });
-          const created = kasalarList?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
-          if (created) await syncService.queueChange(tenant.id, 'kasalar', 'create', created);
-        }
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       setShowModal(false);
       setEditingKasa(null);
@@ -178,11 +167,8 @@ export const KasalarPage: React.FC = () => {
         id: kasaId,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'kasalar', 'delete', { id: kasaId, tenant_id: tenant.id });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
       
       await loadKasalar();
       await loadOzet();

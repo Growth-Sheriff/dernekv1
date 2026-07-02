@@ -23,16 +23,29 @@ interface Etkinlik {
   updated_at?: string;
 }
 
+interface EtkinlikMaliOzet {
+  etkinlik_id: string;
+  toplam_gelir: number;
+  toplam_gider: number;
+  net: number;
+  gelir_sayisi: number;
+  gider_sayisi: number;
+}
+
 export const EtkinliklerDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const tenant = useAuthStore((state) => state.tenant);
-  
+
   const [etkinlik, setEtkinlik] = React.useState<Etkinlik | null>(null);
+  const [maliOzet, setMaliOzet] = React.useState<EtkinlikMaliOzet | null>(null);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    if (tenant && id) loadEtkinlik();
+    if (tenant && id) {
+      loadEtkinlik();
+      loadMaliOzet();
+    }
   }, [tenant, id]);
 
   const loadEtkinlik = async () => {
@@ -49,6 +62,19 @@ export const EtkinliklerDetailPage: React.FC = () => {
       alert('Etkinlik yüklenemedi: ' + error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMaliOzet = async () => {
+    if (!tenant || !id) return;
+    try {
+      const result = await invoke<EtkinlikMaliOzet>('get_etkinlik_mali_ozet', {
+        tenantIdParam: tenant.id,
+        etkinlikIdParam: id,
+      });
+      setMaliOzet(result);
+    } catch (error) {
+      console.error('Mali özet yüklenemedi:', error);
     }
   };
 
@@ -178,7 +204,7 @@ export const EtkinliklerDetailPage: React.FC = () => {
               
               {etkinlik.gerceklesen_butce !== undefined && (
                 <div className="pt-3 border-t">
-                  <div className="text-sm text-gray-500">Gerçekleşen Bütçe</div>
+                  <div className="text-sm text-gray-500">Gerçekleşen Bütçe (manuel)</div>
                   <div className="text-lg font-semibold text-green-600">
                     {etkinlik.gerceklesen_butce.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
                   </div>
@@ -186,6 +212,39 @@ export const EtkinliklerDetailPage: React.FC = () => {
               )}
             </div>
           </div>
+
+          {maliOzet && (
+            <div className="card-macos p-6">
+              <h2 className="text-lg font-semibold mb-4">Mali Özet</h2>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm text-gray-500">Gerçekleşen Gelir</div>
+                  <div className="text-lg font-semibold text-green-600">
+                    {maliOzet.toplam_gelir.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                  </div>
+                  <div className="text-xs text-gray-400">{maliOzet.gelir_sayisi} gelir kaydı</div>
+                </div>
+
+                <div className="pt-3 border-t">
+                  <div className="text-sm text-gray-500">Gerçekleşen Gider</div>
+                  <div className="text-lg font-semibold text-red-600">
+                    {maliOzet.toplam_gider.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                  </div>
+                  <div className="text-xs text-gray-400">{maliOzet.gider_sayisi} gider kaydı</div>
+                </div>
+
+                <div className="pt-3 border-t">
+                  <div className="text-sm text-gray-500">Net</div>
+                  <div className={`text-lg font-semibold ${maliOzet.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {maliOzet.net.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+                  </div>
+                </div>
+              </div>
+              <p className="mt-4 pt-3 border-t text-xs text-gray-400">
+                Bu değerler, etkinliğe bağlı gelir ve gider kayıtlarından otomatik hesaplanır.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

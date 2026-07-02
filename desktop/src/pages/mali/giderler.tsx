@@ -44,6 +44,7 @@ interface Gider {
 
 interface Kasa { id: string; kasa_adi: string; para_birimi: string; }
 interface GiderTuru { id: string; ad: string; }
+interface EtkinlikOption { id: string; baslik: string; }
 
 // ============ COLORS ============
 const COLORS = {
@@ -135,6 +136,8 @@ export const GiderlerPage: React.FC = () => {
   const [notlar, setNotlar] = useState('');
   // Eksik alanlar - Faz 2 (Son eklenenler)
   const [selectedUyeId, setSelectedUyeId] = useState('');
+  const [etkinlikler, setEtkinlikler] = useState<EtkinlikOption[]>([]);
+  const [selectedEtkinlikId, setSelectedEtkinlikId] = useState('');
 
   const baslangicTarih = filterValues.find(f => f.id === 'baslangic_tarih')?.value || '';
   const bitisTarih = filterValues.find(f => f.id === 'bitis_tarih')?.value || '';
@@ -150,6 +153,7 @@ export const GiderlerPage: React.FC = () => {
     loadKasalar();
     loadGiderTurleri();
     loadUyeler();
+    loadEtkinlikler();
     loadGiderler();
   }, [tenant, baslangicTarih, bitisTarih]);
 
@@ -176,6 +180,14 @@ export const GiderlerPage: React.FC = () => {
       const result = await invoke<{ id: string; uye_no: string; ad_soyad: string }[]>('get_uyeler', { tenantIdParam: tenant.id });
       setUyeler(result);
     } catch (error) { console.error('Üyeler yüklenemedi:', error); }
+  };
+
+  const loadEtkinlikler = async () => {
+    if (!tenant) return;
+    try {
+      const result = await invoke<EtkinlikOption[]>('get_etkinlikler', { tenantIdParam: tenant.id });
+      setEtkinlikler(result);
+    } catch (error) { console.error('Etkinlikler yüklenemedi:', error); }
   };
 
   const loadGiderler = async () => {
@@ -304,6 +316,7 @@ export const GiderlerPage: React.FC = () => {
         // Faz 2 alanları (Son eklenenler)
         uye_id: selectedUyeId || null,
         belge_id: evrakData?.belge_id || null,
+        etkinlik_id: selectedEtkinlikId || null,
       };
 
       // 1. Local DB'ye kaydet
@@ -312,13 +325,8 @@ export const GiderlerPage: React.FC = () => {
         data: giderData,
       });
 
-      // 2. Sync kuyruğuna ekle
-      const { syncService } = await import('@/services/syncService');
-      await syncService.queueChange(tenant.id, 'giderler', 'create', {
-        id: giderId,
-        tenant_id: tenant.id,
-        ...giderData,
-      });
+      // 2. Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       if (demirbasEkle && demirbasAdi) {
         const adet = Math.max(1, Math.floor(Number(demirbasAdet) || 1));
@@ -351,7 +359,7 @@ export const GiderlerPage: React.FC = () => {
       setDemirbasAdi(''); setDemirbasKategori(''); setDemirbasAdet('1');
       setDemirbasMarkaModel(''); setDemirbasSeriNo(''); setDemirbasKonum(''); setDemirbasNotlar('');
       setOdeyen(''); setIslemNo(''); setAltKategori(''); setNotlar('');
-      setSelectedUyeId(''); setEvrakData(null);
+      setSelectedUyeId(''); setSelectedEtkinlikId(''); setEvrakData(null);
       loadGiderler();
     } catch (error) { toast.error('Gider eklenemedi: ' + error); }
   };
@@ -363,12 +371,8 @@ export const GiderlerPage: React.FC = () => {
       // 1. Local DB'den sil
       await invoke('delete_gider', { tenantIdParam: tenant.id, recordId: deletingGider.id });
 
-      // 2. Sync kuyruğuna ekle
-      const { syncService } = await import('@/services/syncService');
-      await syncService.queueChange(tenant.id, 'giderler', 'delete', {
-        id: deletingGider.id,
-        tenant_id: tenant.id
-      });
+      // 2. Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       toast.success('Gider silindi');
       loadGiderler();
@@ -588,6 +592,21 @@ export const GiderlerPage: React.FC = () => {
                 <option value="">Üye Seçin (Opsiyonel)</option>
                 {uyeler.map(u => (
                   <option key={u.id} value={u.id}>{u.uye_no} - {u.ad_soyad}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ROW 5b: Etkinlik */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Etkinlik</label>
+              <select
+                value={selectedEtkinlikId}
+                onChange={(e) => setSelectedEtkinlikId(e.target.value)}
+                className="w-full h-10 rounded-lg border px-3"
+              >
+                <option value="">Etkinlik Seçin (Opsiyonel)</option>
+                {etkinlikler.map(et => (
+                  <option key={et.id} value={et.id}>{et.baslik}</option>
                 ))}
               </select>
             </div>

@@ -62,6 +62,11 @@ interface Uye {
   telefon?: string;
 }
 
+interface EtkinlikOption {
+  id: string;
+  baslik: string;
+}
+
 // ============ FILTER DEFINITIONS ============
 const createFilterDefinitions = (kasalar: Kasa[], gelirTurleri: GelirTuru[]): FilterDefinition[] => [
   {
@@ -131,6 +136,8 @@ export const GelirlerPage: React.FC = () => {
   const [aciklama, setAciklama] = useState('');
   const [dekontNo, setDekontNo] = useState('');
   const [selectedUyeId, setSelectedUyeId] = useState('');
+  const [etkinlikler, setEtkinlikler] = useState<EtkinlikOption[]>([]);
+  const [selectedEtkinlikId, setSelectedEtkinlikId] = useState('');
   const [evrakData, setEvrakData] = useState<EvrakData | null>(null);
 
   // Extract filters
@@ -164,6 +171,7 @@ export const GelirlerPage: React.FC = () => {
     loadKasalar();
     loadGelirTurleri();
     loadUyeler();
+    loadEtkinlikler();
   }, [tenant]);
 
   const loadKasalar = async () => {
@@ -195,6 +203,16 @@ export const GelirlerPage: React.FC = () => {
       setUyeler(result);
     } catch (error) {
       console.error('Üyeler yüklenemedi:', error);
+    }
+  };
+
+  const loadEtkinlikler = async () => {
+    if (!tenant) return;
+    try {
+      const result = await invoke<EtkinlikOption[]>('get_etkinlikler', { tenantIdParam: tenant.id });
+      setEtkinlikler(result);
+    } catch (error) {
+      console.error('Etkinlikler yüklenemedi:', error);
     }
   };
 
@@ -412,16 +430,12 @@ export const GelirlerPage: React.FC = () => {
           aciklama: aciklama || null,
           makbuz_no: dekontNo || null,
           uye_id: selectedUyeId || null,
+          etkinlik_id: selectedEtkinlikId || null,
         },
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        const latestGelirler = await invoke<any[]>('get_gelirler', { tenantIdParam: tenant.id, yil: 0 });
-        const created = latestGelirler?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
-        if (created) await syncService.queueChange(tenant.id, 'gelirler', 'create', created);
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       toast.success('Gelir başarıyla eklendi!');
       setShowForm(false);
@@ -437,6 +451,7 @@ export const GelirlerPage: React.FC = () => {
     setAciklama('');
     setDekontNo('');
     setSelectedUyeId('');
+    setSelectedEtkinlikId('');
     setEvrakData(null);
   };
 
@@ -449,11 +464,8 @@ export const GelirlerPage: React.FC = () => {
         recordId: deletingGelir.id,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'gelirler', 'delete', { id: deletingGelir.id, tenant_id: tenant.id });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       toast.success('Gelir silindi');
       refetch();
@@ -654,6 +666,20 @@ export const GelirlerPage: React.FC = () => {
                   <option key={u.id} value={u.id}>
                     {u.uye_no ? `${u.uye_no} - ` : ''}{u.ad_soyad}
                   </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Etkinlik (Opsiyonel)</label>
+              <select
+                value={selectedEtkinlikId}
+                onChange={(e) => setSelectedEtkinlikId(e.target.value)}
+                className="w-full h-10 rounded-lg border border-gray-200 px-3 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              >
+                <option value="">Etkinlik Seçilmedi</option>
+                {etkinlikler.map(et => (
+                  <option key={et.id} value={et.id}>{et.baslik}</option>
                 ))}
               </select>
             </div>

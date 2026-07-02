@@ -123,6 +123,8 @@ fn main() {
             commands::aile_uyeleri::delete_aile_uyesi,
             // Aidat
             commands::aidat::get_aidat_takip,
+            commands::aidat::get_all_aidat,
+            commands::aidat::check_aidat_gelir_tutarliligi,
             commands::aidat::get_aidat_takip_with_uye,  // YENİ - üye bilgisiyle
             commands::aidat::create_aidat,
             commands::aidat::hesapla_gecikme,
@@ -214,6 +216,7 @@ fn main() {
             commands::export::export_demirbaslar_excel,
             // Etkinlikler
             commands::etkinlikler::get_etkinlikler,
+            commands::etkinlikler::get_etkinlik_mali_ozet,
             commands::etkinlikler::get_etkinlik,  // YENİ!
             commands::etkinlikler::create_etkinlik,
             commands::etkinlikler::update_etkinlik,

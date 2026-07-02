@@ -1,10 +1,13 @@
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import jwt
 from passlib.context import CryptContext
 import bcrypt
 
-SECRET_KEY = "gizli-anahtar-super-bader-v1" # Production'da env'den okunmalı
+# Dev fallback yalnızca yerel geliştirme içindir; production'da
+# BADER_SECRET_KEY ortam değişkeni set edilmelidir.
+SECRET_KEY = os.getenv("BADER_SECRET_KEY", "gizli-anahtar-super-bader-v1-dev")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 saat
 

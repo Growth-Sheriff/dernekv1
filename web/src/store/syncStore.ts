@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { invoke } from '@tauri-apps/api/core';
+
+// NOT: Web her zaman çevrimiçi çalışır ve doğrudan backend API'sini kullanır.
+// Yerel veritabanı senkronizasyonu (manual_sync / get_sync_status) desktop'a
+// özgüdür; bu store web'de no-op olarak davranır.
+const SYNC_DESKTOP_ONLY_MESSAGE =
+  'Senkronizasyon web sürümünde kullanılamaz: web her zaman çevrimiçi çalışır ve verileriniz doğrudan sunucuya kaydedilir.';
 
 interface SyncState {
   isSyncing: boolean;
@@ -42,58 +47,19 @@ export const useSyncStore = create<SyncState>()(
       
       clearSyncErrors: () => set({ syncErrors: [] }),
 
-      loadSyncStatus: async (tenantId: string) => {
-        try {
-          const status = await invoke<{
-            pending_changes: number;
-            last_sync_at: string | null;
-            is_syncing: boolean;
-          }>('get_sync_status', { tenantIdParam: tenantId });
-          
-          set({
-            pendingChanges: status.pending_changes,
-            lastSyncAt: status.last_sync_at,
-            isSyncing: status.is_syncing,
-          });
-        } catch (error) {
-          console.error('Failed to load sync status:', error);
-        }
+      loadSyncStatus: async (_tenantId: string) => {
+        // Web online-only: bekleyen yerel değişiklik olamaz → no-op
+        set({ pendingChanges: 0, isSyncing: false });
       },
 
-      triggerManualSync: async (tenantId: string, apiUrl: string, authToken: string) => {
-        set({ isSyncing: true, syncErrors: [] });
-        
-        try {
-          const result = await invoke<{
-            success: boolean;
-            synced_count: number;
-            failed_count: number;
-            errors: string[];
-          }>('manual_sync', {
-            tenantIdParam: tenantId,
-            apiUrl,
-            authToken,
-          });
-
-          if (result.success) {
-            set({
-              isSyncing: false,
-              lastSyncAt: new Date().toISOString(),
-              pendingChanges: 0,
-              syncErrors: [],
-            });
-          } else {
-            set({
-              isSyncing: false,
-              syncErrors: result.errors,
-            });
-          }
-        } catch (error) {
-          set({
-            isSyncing: false,
-            syncErrors: [String(error)],
-          });
-        }
+      triggerManualSync: async (_tenantId: string, _apiUrl: string, _authToken: string) => {
+        // Web online-only: manuel senkronizasyon desktop'a özgüdür → no-op + açıklama
+        console.info(SYNC_DESKTOP_ONLY_MESSAGE);
+        set({
+          isSyncing: false,
+          pendingChanges: 0,
+          syncErrors: [SYNC_DESKTOP_ONLY_MESSAGE],
+        });
       },
     }),
     {

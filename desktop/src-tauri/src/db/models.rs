@@ -142,6 +142,7 @@ pub struct AidatTakip {
     pub gelir_id: Option<String>,
     pub aktarim_durumu: Option<String>,
     pub version: i32,
+    pub is_deleted: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -202,6 +203,7 @@ pub struct Gelir {
     pub tahakkuk_durumu: Option<String>,
     pub notlar: Option<String>,
     pub belge_id: Option<String>,
+    pub etkinlik_id: Option<String>,
     pub is_deleted: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
@@ -238,6 +240,7 @@ pub struct Gider {
     pub odeyen: Option<String>,
     pub notlar: Option<String>,
     pub belge_id: Option<String>,
+    pub etkinlik_id: Option<String>,
     pub is_deleted: Option<i32>,
     pub created_at: String,
     pub updated_at: String,

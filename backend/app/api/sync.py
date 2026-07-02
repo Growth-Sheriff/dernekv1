@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import uuid
 
 from app.core.db import get_session
+from app.api.auth import get_current_user
 from app.models.base import (
     Uye, Gelir, Gider, Kasa, GelirTuru, GiderTuru, 
     AidatTakip, Virman, SyncChange
@@ -115,11 +116,14 @@ class SyncResponse(BaseModel):
 @router.post("/push", response_model=SyncResponse)
 def push_data(
     data: SyncRequest,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user),
 ):
     """
-    Desktop'tan sunucuya veri gönder (push)
+    Desktop'tan sunucuya veri gönder (push) — DEPRECATED, /sync/sync kullanın
     """
+    if not current_user.is_superuser and current_user.tenant_id != data.tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
     now = datetime.utcnow().isoformat()
     counts = {"uyeler": 0, "gelirler": 0, "giderler": 0, "kasalar": 0, "aidatlar": 0}
     
@@ -213,8 +217,11 @@ def push_data(
 def pull_data(
     tenant_id: str,
     since: Optional[str] = None,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user),
 ):
+    if not current_user.is_superuser and current_user.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
     """
     Sunucudan desktop'a veri çek (pull)
     since: ISO format tarih - bu tarihten sonra güncellenen kayıtları getir
@@ -272,8 +279,11 @@ def pull_data(
 @router.post("/uye")
 def sync_single_uye(
     uye_data: UyeSync,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user),
 ):
+    if not current_user.is_superuser and current_user.tenant_id != uye_data.tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
     """Tek bir üye senkronize et"""
     now = datetime.utcnow().isoformat()
     
@@ -309,8 +319,11 @@ def sync_single_uye(
 @router.post("/gelir")
 def sync_single_gelir(
     gelir_data: GelirSync,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user),
 ):
+    if not current_user.is_superuser and current_user.tenant_id != gelir_data.tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
     """Tek bir gelir senkronize et"""
     now = datetime.utcnow().isoformat()
     
@@ -333,8 +346,11 @@ def sync_single_gelir(
 @router.post("/gider")
 def sync_single_gider(
     gider_data: GiderSync,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user),
 ):
+    if not current_user.is_superuser and current_user.tenant_id != gider_data.tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
     """Tek bir gider senkronize et"""
     now = datetime.utcnow().isoformat()
     
@@ -357,8 +373,11 @@ def sync_single_gider(
 @router.post("/kasa")
 def sync_single_kasa(
     kasa_data: KasaSync,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user = Depends(get_current_user),
 ):
+    if not current_user.is_superuser and current_user.tenant_id != kasa_data.tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
     """Tek bir kasa senkronize et"""
     now = datetime.utcnow().isoformat()
     
@@ -376,3 +395,284 @@ def sync_single_kasa(
     
     session.commit()
     return {"success": True, "message": "Kasa senkronize edildi", "id": kasa_data.id}
+
+# ============================================================================
+# SYNC v3 — BİRLEŞİK ENDPOINT (POST /sync/sync)
+# Desktop syncService'in kullandığı tek çağrılık push+pull.
+# Çatışma tespiti: optimistic locking (version), silmeler tombstone.
+# ============================================================================
+from app.api.auth import get_current_user
+from app.models.base import User, Etkinlik
+
+# Sync yüzeyi: tablo adı -> model. Desktop outbox'ıyla birebir aynı liste.
+SYNC_TABLE_MODELS = {
+    "uyeler": Uye,
+    "gelirler": Gelir,
+    "giderler": Gider,
+    "kasalar": Kasa,
+    "aidat_takip": AidatTakip,
+    "aidatlar": AidatTakip,  # eski istemci uyumluluğu
+    "virmanlar": Virman,
+    "gelir_turleri": GelirTuru,
+    "gider_turleri": GiderTuru,
+    "etkinlikler": Etkinlik,
+}
+
+# Türetilmiş alanlar: istemciler yerelde baz kayıtlardan hesaplar,
+# sunucu bunları push'tan almaz ve delta'da göndermesi zararsızdır ama
+# istemci tarafı zaten yok sayar. Push'ta kesinlikle uygulanmaz.
+SYNC_DERIVED_FIELDS = {
+    "kasalar": {
+        "bakiye", "toplam_gelir", "toplam_gider", "virman_giris",
+        "virman_cikis", "fiziksel_bakiye", "tahakkuk_tutari", "serbest_bakiye",
+    },
+}
+
+# İstemcinin belirleyemeyeceği alanlar
+SYNC_PROTECTED_FIELDS = {"id", "tenant_id", "version", "created_at", "updated_at"}
+
+
+class SyncChangeItem(BaseModel):
+    table: str
+    id: str
+    operation: str  # insert | update | delete
+    data: dict = {}
+    version: int = 1
+    changed_at: Optional[str] = None
+    change_id: Optional[str] = None
+
+
+class UnifiedSyncRequest(BaseModel):
+    tenant_id: str
+    device_id: Optional[str] = None
+    client_version: Optional[str] = None
+    last_sync_at: Optional[str] = None
+    changes: List[SyncChangeItem] = []
+
+
+class SyncItemResult(BaseModel):
+    table: str
+    id: str
+    status: str  # applied | rejected | conflict
+    reason: Optional[str] = None
+    version: Optional[int] = None
+    change_id: Optional[str] = None
+    server_version: Optional[int] = None
+    server_data: Optional[dict] = None
+
+
+class UnifiedSyncResponse(BaseModel):
+    status: str  # ok | partial | error
+    server_time: str
+    applied: List[SyncItemResult] = []
+    rejected: List[SyncItemResult] = []
+    conflicts: List[SyncItemResult] = []
+    changes: List[SyncChangeItem] = []
+
+
+def _row_to_dict(row) -> dict:
+    return {k: v for k, v in row.__dict__.items() if not k.startswith("_")}
+
+
+def _apply_change(
+    session: Session,
+    tenant_id: str,
+    item: SyncChangeItem,
+    now: str,
+) -> SyncItemResult:
+    model = SYNC_TABLE_MODELS.get(item.table)
+    if model is None:
+        return SyncItemResult(
+            table=item.table, id=item.id, status="rejected",
+            reason=f"Bilinmeyen tablo: {item.table}", change_id=item.change_id,
+        )
+
+    row = session.get(model, item.id)
+    if row is not None and row.tenant_id != tenant_id:
+        return SyncItemResult(
+            table=item.table, id=item.id, status="rejected",
+            reason="tenant_mismatch", change_id=item.change_id,
+        )
+
+    model_fields = set(model.model_fields.keys())
+    derived = SYNC_DERIVED_FIELDS.get(item.table, set())
+    has_version = "version" in model_fields
+    has_tombstone = "is_deleted" in model_fields
+
+    is_delete = item.operation == "delete" or bool(item.data.get("is_deleted"))
+
+    # --- SİLME (tombstone) ---
+    if is_delete:
+        if row is None:
+            # Sunucu bu kaydı hiç görmemiş: silinmiş kabul, no-op.
+            return SyncItemResult(
+                table=item.table, id=item.id, status="applied",
+                reason="not_found_noop", change_id=item.change_id,
+            )
+        if has_version and row.version != item.version:
+            return SyncItemResult(
+                table=item.table, id=item.id, status="conflict",
+                reason="version_mismatch", change_id=item.change_id,
+                server_version=row.version, server_data=_row_to_dict(row),
+            )
+        if has_tombstone:
+            row.is_deleted = 1
+        new_version = (row.version + 1) if has_version else None
+        if has_version:
+            row.version = new_version
+        row.updated_at = now
+        session.add(row)
+        return SyncItemResult(
+            table=item.table, id=item.id, status="applied",
+            version=new_version, change_id=item.change_id,
+        )
+
+    # --- INSERT / UPDATE ---
+    payload = {
+        k: v for k, v in item.data.items()
+        if k in model_fields and k not in SYNC_PROTECTED_FIELDS and k not in derived
+    }
+
+    if row is None:
+        # Yeni kayıt (update gelse bile sunucuda yoksa insert edilir —
+        # sunucu DB'si sıfırlanmış olabilir, veri kaybetmeyiz).
+        values = dict(payload)
+        values["id"] = item.id
+        values["tenant_id"] = tenant_id
+        values["created_at"] = item.data.get("created_at") or now
+        values["updated_at"] = now
+        if has_version:
+            values["version"] = 1
+        try:
+            row = model(**values)
+        except Exception as e:
+            return SyncItemResult(
+                table=item.table, id=item.id, status="rejected",
+                reason=f"validation: {e}", change_id=item.change_id,
+            )
+        session.add(row)
+        return SyncItemResult(
+            table=item.table, id=item.id, status="applied",
+            version=1 if has_version else None, change_id=item.change_id,
+        )
+
+    # Sunucuda tombstone'lanmış kaydın update ile dirilmesini reddet.
+    if has_tombstone and getattr(row, "is_deleted", 0):
+        return SyncItemResult(
+            table=item.table, id=item.id, status="conflict",
+            reason="deleted_on_server", change_id=item.change_id,
+            server_version=getattr(row, "version", None),
+            server_data=_row_to_dict(row),
+        )
+
+    if has_version and row.version != item.version:
+        return SyncItemResult(
+            table=item.table, id=item.id, status="conflict",
+            reason="version_mismatch", change_id=item.change_id,
+            server_version=row.version, server_data=_row_to_dict(row),
+        )
+
+    for k, v in payload.items():
+        setattr(row, k, v)
+    new_version = (row.version + 1) if has_version else None
+    if has_version:
+        row.version = new_version
+    row.updated_at = now
+    session.add(row)
+    return SyncItemResult(
+        table=item.table, id=item.id, status="applied",
+        version=new_version, change_id=item.change_id,
+    )
+
+
+def _collect_server_delta(
+    session: Session,
+    tenant_id: str,
+    last_sync_at: Optional[str],
+    exclude: set,
+) -> List[SyncChangeItem]:
+    """updated_at > last_sync_at olan kayıtları döndürür (tombstone dahil).
+
+    updated_at damgaları HER ZAMAN sunucu saatiyle atıldığı için istemcinin
+    sakladığı server_time ile karşılaştırma tutarlıdır.
+    """
+    delta: List[SyncChangeItem] = []
+    seen_models = set()
+    for table_name, model in SYNC_TABLE_MODELS.items():
+        if model in seen_models:
+            continue  # aidatlar/aidat_takip alias'ı tek kez taransın
+        seen_models.add(model)
+        canonical = "aidat_takip" if model is AidatTakip else table_name
+        query = select(model).where(model.tenant_id == tenant_id)
+        if last_sync_at:
+            query = query.where(model.updated_at > last_sync_at)
+        for row in session.exec(query).all():
+            if (canonical, row.id) in exclude:
+                continue
+            data = _row_to_dict(row)
+            is_deleted = bool(data.get("is_deleted"))
+            delta.append(
+                SyncChangeItem(
+                    table=canonical,
+                    id=row.id,
+                    operation="delete" if is_deleted else "update",
+                    data=data,
+                    version=data.get("version") or 1,
+                    changed_at=data.get("updated_at"),
+                )
+            )
+    return delta
+
+
+@router.post("/sync", response_model=UnifiedSyncResponse)
+async def unified_sync(
+    request: UnifiedSyncRequest,
+    session: Session = Depends(get_session),
+    current_user: "User" = Depends(get_current_user),
+):
+    """Tek çağrılık push + pull.
+
+    - Push: her değişiklik için optimistic locking (version) kontrolü.
+      Eşleşmeyen versiyon -> conflict (server_data ile birlikte döner,
+      istemci sunucu kopyasını uygular ve yerel bekleyen kaydı düşürür).
+    - Silme: tombstone (is_deleted=1). Silinmiş kaydın update ile
+      dirilmesi reddedilir.
+    - Pull: last_sync_at'ten beri değişen kayıtlar (tombstone dahil),
+      bu istekte uygulananlar hariç.
+    """
+    if not current_user.is_superuser and current_user.tenant_id != request.tenant_id:
+        raise HTTPException(status_code=403, detail="Bu tenant için yetkiniz yok")
+
+    now = datetime.utcnow().isoformat()
+    applied: List[SyncItemResult] = []
+    rejected: List[SyncItemResult] = []
+    conflicts: List[SyncItemResult] = []
+
+    try:
+        for item in request.changes:
+            result = _apply_change(session, request.tenant_id, item, now)
+            if result.status == "applied":
+                applied.append(result)
+            elif result.status == "conflict":
+                conflicts.append(result)
+            else:
+                rejected.append(result)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Sync hatası: {e}")
+
+    exclude = {(r.table, r.id) for r in applied}
+    server_changes = _collect_server_delta(
+        session, request.tenant_id, request.last_sync_at, exclude
+    )
+
+    status = "ok" if not rejected and not conflicts else "partial"
+    return UnifiedSyncResponse(
+        status=status,
+        server_time=now,
+        applied=applied,
+        rejected=rejected,
+        conflicts=conflicts,
+        changes=server_changes,
+    )

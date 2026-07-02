@@ -5,8 +5,15 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 use crate::db::models::{Kasa, Gelir, Gider, GelirTuru, GiderTuru, Virman};
+use crate::db::outbox::{self, TxError};
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
+
+/// Outbox'ın String hatasını, diesel::result::Error tipli transaction bloklarında
+/// taşıyabilmek için sarmalar (mesaj kaybolmaz, mevcut hata akışı değişmez).
+fn outbox_err(e: String) -> diesel::result::Error {
+    diesel::result::Error::QueryBuilderError(e.into())
+}
 
 /// Generic paginated response for server-side pagination
 #[derive(Debug, Serialize)]
@@ -62,6 +69,7 @@ pub struct CreateGelirRequest {
     pub uye_id: Option<String>,        // İlgili üye
     pub aidat_id: Option<String>,      // Aidat bağlantısı
     pub ait_oldugu_yil: Option<i32>,   // Ait olduğu yıl
+    pub etkinlik_id: Option<String>,   // Etkinlik bağlantısı (gerçekleşen bütçe hesabı)
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +105,7 @@ pub struct CreateGiderRequest {
     pub belge_id: Option<String>,
     pub uye_id: Option<String>,         // Opsiyonel ilgili üye
     pub demirbas_id: Option<String>,    // Demirbaş bağlantısı
+    pub etkinlik_id: Option<String>,    // Etkinlik bağlantısı (gerçekleşen bütçe hesabı)
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,29 +192,25 @@ pub async fn create_kasa(
     let new_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    diesel::sql_query(
-        "INSERT INTO kasalar (id, tenant_id, kasa_adi, bakiye, para_birimi, is_active, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 0.0, ?4, 1, ?5, ?6)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&new_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&data.kasa_adi)
-    .bind::<diesel::sql_types::Text, _>(&data.para_birimi)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
-    .map_err(|e| e.to_string())?;
+    // Yazım + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::sql_query(
+            "INSERT INTO kasalar (id, tenant_id, kasa_adi, bakiye, para_birimi, is_active, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 0.0, ?4, 1, ?5, ?6)"
+        )
+        .bind::<diesel::sql_types::Text, _>(&new_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&data.kasa_adi)
+        .bind::<diesel::sql_types::Text, _>(&data.para_birimi)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(conn)?;
 
-    let sync_id = Uuid::new_v4().to_string();
-    diesel::sql_query(
-        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
-         VALUES (?1, ?2, 'kasalar', ?3, 'INSERT', '{}', ?4)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&sync_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&new_id)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
+        outbox::queue_change(conn, &tenant_id_param, "kasalar", &new_id, "create")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
     .map_err(|e| e.to_string())?;
 
     use crate::db::schema::kasalar::dsl::*;
@@ -305,8 +310,8 @@ pub async fn create_gelir(
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
         diesel::sql_query(
-            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, gelir_turu_id, tarih, tutar, aciklama, makbuz_no, alt_kategori, tahakkuk_durumu, belge_no, tahsil_eden, uye_id, aidat_id, ait_oldugu_yil, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, gelir_turu_id, tarih, tutar, aciklama, makbuz_no, alt_kategori, tahakkuk_durumu, belge_no, tahsil_eden, uye_id, aidat_id, ait_oldugu_yil, etkinlik_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)"
         )
         .bind::<diesel::sql_types::Text, _>(&new_id)
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -324,6 +329,7 @@ pub async fn create_gelir(
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.uye_id)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aidat_id)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Integer>, _>(&data.ait_oldugu_yil)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.etkinlik_id)
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&now)
         .execute(conn)?;
@@ -337,16 +343,9 @@ pub async fn create_gelir(
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
         .execute(conn)?;
 
-        let sync_id = Uuid::new_v4().to_string();
-        diesel::sql_query(
-            "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
-             VALUES (?1, ?2, 'gelirler', ?3, 'INSERT', '{}', ?4)"
-        )
-        .bind::<diesel::sql_types::Text, _>(&sync_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(&new_id)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(conn)?;
+        // Outbox: kasa bakiye değişimi türetilmiş alan olduğundan yalnızca gelir kaydı kuyruğa girer
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &new_id, "create")
+            .map_err(outbox_err)?;
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
@@ -420,9 +419,10 @@ pub async fn get_giderler_paginated(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    // Build count query
+    // Build count query - soft delete filtreli (is_deleted = null veya 0)
     let mut count_query = giderler
         .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
         .into_boxed();
 
     if let Some(ref kid) = kasa_id_filter {
@@ -442,9 +442,10 @@ pub async fn get_giderler_paginated(
         .get_result(&mut conn)
         .map_err(|e| e.to_string())?;
 
-    // Build data query
+    // Build data query - soft delete filtreli (is_deleted = null veya 0)
     let mut data_query = giderler
         .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
         .into_boxed();
 
     if let Some(kid) = kasa_id_filter {
@@ -508,8 +509,8 @@ pub async fn create_gider(
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
         diesel::sql_query(
-            "INSERT INTO giderler (id, tenant_id, kasa_id, gider_turu, gider_turu_id, tarih, tutar, aciklama, fatura_no, alt_kategori, islem_no, odeyen, notlar, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+            "INSERT INTO giderler (id, tenant_id, kasa_id, gider_turu, gider_turu_id, tarih, tutar, aciklama, fatura_no, alt_kategori, islem_no, odeyen, notlar, etkinlik_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"
         )
         .bind::<diesel::sql_types::Text, _>(&new_id)
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -524,6 +525,7 @@ pub async fn create_gider(
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.islem_no)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.odeyen)
         .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.etkinlik_id)
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&now)
         .execute(conn)?;
@@ -537,16 +539,9 @@ pub async fn create_gider(
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
         .execute(conn)?;
 
-        let sync_id = Uuid::new_v4().to_string();
-        diesel::sql_query(
-            "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
-             VALUES (?1, ?2, 'giderler', ?3, 'INSERT', '{}', ?4)"
-        )
-        .bind::<diesel::sql_types::Text, _>(&sync_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(&new_id)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(conn)?;
+        // Outbox: kasa bakiye değişimi türetilmiş alan olduğundan yalnızca gider kaydı kuyruğa girer
+        outbox::queue_change(conn, &tenant_id_param, "giderler", &new_id, "create")
+            .map_err(outbox_err)?;
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
@@ -685,6 +680,11 @@ pub async fn virman_yap(
         // 4. Her iki kasanın bakiyesini yeniden hesapla
         update_kasa_bakiye(conn, &virman.kaynak_kasa_id)?;
         update_kasa_bakiye(conn, &virman.hedef_kasa_id)?;
+
+        // Outbox: kasa değişimleri türetilmiş alan (virman_giris/cikis, bakiye) olduğundan
+        // yalnızca virman kaydı kuyruğa girer
+        outbox::queue_change(conn, &tenant_id_param, "virmanlar", &virman_id, "create")
+            .map_err(outbox_err)?;
 
         Ok(virman_id)
     }).map_err(|e| e.to_string())
@@ -1041,6 +1041,11 @@ pub async fn uygula_yil_sonu_devir(
             .bind::<diesel::sql_types::Text, _>(&now)
             .bind::<diesel::sql_types::Text, _>(&kasa.id)
             .execute(conn)?;
+
+            // Outbox: devir_bakiye baz alandır (türetilmiş değil) — her etkilenen kasa kuyruğa girer.
+            // Sıfırlanan toplam_gelir/gider vb. türetilmiş alanlar payload'dan zaten ayıklanır.
+            outbox::queue_change(conn, &tenant_id_param, "kasalar", &kasa.id, "update")
+                .map_err(outbox_err)?;
         }
 
         Ok(format!("{} yılı devir işlemi tamamlandı", data.yil))
@@ -1107,8 +1112,7 @@ pub async fn update_kasa(
     id: String,
     request: UpdateKasaRequest,
 ) -> Result<Kasa, String> {
-    use crate::db::schema::kasalar::dsl::*;
-
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
@@ -1123,17 +1127,30 @@ pub async fn update_kasa(
         .first::<Kasa>(&mut conn)
         .map_err(|e| e.to_string())?;
 
-    diesel::update(kasalar.find(&id))
+    // Yazım + outbox kaydı aynı transaction'da (kasa_adi/para_birimi baz alanlar)
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::update(
+            kasa_dsl::kasalar
+                .filter(kasa_dsl::id.eq(&id))
+                .filter(kasa_dsl::tenant_id.eq(&tenant_id_param)),
+        )
         .set((
-            kasa_adi.eq(request.kasa_adi.unwrap_or(current.kasa_adi)),
-            para_birimi.eq(request.para_birimi.unwrap_or(current.para_birimi)),
-            updated_at.eq(&now),
+            kasa_dsl::kasa_adi.eq(request.kasa_adi.unwrap_or(current.kasa_adi)),
+            kasa_dsl::para_birimi.eq(request.para_birimi.unwrap_or(current.para_birimi)),
+            kasa_dsl::updated_at.eq(&now),
         ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+        .execute(conn)?;
 
-    let updated = kasalar
-        .find(&id)
+        outbox::queue_change(conn, &tenant_id_param, "kasalar", &id, "update")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+
+    let updated = kasa_dsl::kasalar
+        .filter(kasa_dsl::id.eq(&id))
+        .filter(kasa_dsl::tenant_id.eq(&tenant_id_param))
         .first::<Kasa>(&mut conn)
         .map_err(|e| e.to_string())?;
 
@@ -1149,9 +1166,8 @@ pub async fn update_gelir(
 ) -> Result<Gelir, String> {
     // TENANT ISOLATION: Verify access
     state.verify_tenant_access(&tenant_id_param)?;
-    
-    use crate::db::schema::gelirler::dsl::*;
 
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
@@ -1172,22 +1188,26 @@ pub async fn update_gelir(
     let yeni_tutar = request.tutar.unwrap_or(eski_tutar);
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Gelir kaydını güncelle
-        diesel::update(gelirler.find(&id))
-            .set((
-                kasa_id.eq(&yeni_kasa_id),
-                gelir_turu_id.eq(request.gelir_turu_id.or(current.gelir_turu_id)),
-                tarih.eq(request.tarih.unwrap_or(current.tarih)),
-                tutar.eq(yeni_tutar),
-                aciklama.eq(request.aciklama.or(current.aciklama)),
-                makbuz_no.eq(request.makbuz_no.or(current.makbuz_no)),
-                alt_kategori.eq(request.alt_kategori.or(current.alt_kategori)),
-                tahakkuk_durumu.eq(request.tahakkuk_durumu.or(current.tahakkuk_durumu)),
-                belge_no.eq(request.belge_no.or(current.belge_no)),
-                tahsil_eden.eq(request.tahsil_eden.or(current.tahsil_eden)),
-                updated_at.eq(&now),
-            ))
-            .execute(conn)?;
+        // Gelir kaydını güncelle (tenant filtreli)
+        diesel::update(
+            gelir_dsl::gelirler
+                .filter(gelir_dsl::id.eq(&id))
+                .filter(gelir_dsl::tenant_id.eq(&tenant_id_param)),
+        )
+        .set((
+            gelir_dsl::kasa_id.eq(&yeni_kasa_id),
+            gelir_dsl::gelir_turu_id.eq(request.gelir_turu_id.or(current.gelir_turu_id)),
+            gelir_dsl::tarih.eq(request.tarih.unwrap_or(current.tarih)),
+            gelir_dsl::tutar.eq(yeni_tutar),
+            gelir_dsl::aciklama.eq(request.aciklama.or(current.aciklama)),
+            gelir_dsl::makbuz_no.eq(request.makbuz_no.or(current.makbuz_no)),
+            gelir_dsl::alt_kategori.eq(request.alt_kategori.or(current.alt_kategori)),
+            gelir_dsl::tahakkuk_durumu.eq(request.tahakkuk_durumu.or(current.tahakkuk_durumu)),
+            gelir_dsl::belge_no.eq(request.belge_no.or(current.belge_no)),
+            gelir_dsl::tahsil_eden.eq(request.tahsil_eden.or(current.tahsil_eden)),
+            gelir_dsl::updated_at.eq(&now),
+        ))
+        .execute(conn)?;
 
         // Bakiyeleri inline hesaplamak yerine gelirler SUM'ından yeniden hesapla —
         // eski_tutar/yeni_tutar aritmetiği ile stale fiziksel_bakiye + toplam_gelir drift etmesini önler.
@@ -1197,13 +1217,18 @@ pub async fn update_gelir(
             update_kasa_bakiye(conn, &yeni_kasa_id)?;
         }
 
+        // Outbox: kasa bakiye değişimleri türetilmiş alan — yalnızca gelir kaydı kuyruğa girer
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &id, "update")
+            .map_err(outbox_err)?;
+
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
 
     let _ = eski_tutar; // bilgi amaçlı tutuluyor; artık inline aritmetik yok
 
-    let updated = gelirler
-        .find(&id)
+    let updated = gelir_dsl::gelirler
+        .filter(gelir_dsl::id.eq(&id))
+        .filter(gelir_dsl::tenant_id.eq(&tenant_id_param))
         .first::<Gelir>(&mut conn)
         .map_err(|e| e.to_string())?;
 
@@ -1219,9 +1244,8 @@ pub async fn update_gider(
 ) -> Result<Gider, String> {
     // TENANT ISOLATION: Verify access
     state.verify_tenant_access(&tenant_id_param)?;
-    
-    use crate::db::schema::giderler::dsl::*;
 
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
@@ -1242,22 +1266,26 @@ pub async fn update_gider(
     let yeni_tutar = request.tutar.unwrap_or(eski_tutar);
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Gider kaydını güncelle
-        diesel::update(giderler.find(&id))
-            .set((
-                kasa_id.eq(&yeni_kasa_id),
-                gider_turu_id.eq(request.gider_turu_id.or(current.gider_turu_id)),
-                tarih.eq(request.tarih.unwrap_or(current.tarih)),
-                tutar.eq(yeni_tutar),
-                aciklama.eq(request.aciklama.or(current.aciklama)),
-                fatura_no.eq(request.fatura_no.or(current.fatura_no)),
-                alt_kategori.eq(request.alt_kategori.or(current.alt_kategori)),
-                islem_no.eq(request.islem_no.or(current.islem_no)),
-                odeyen.eq(request.odeyen.or(current.odeyen)),
-                notlar.eq(request.notlar.or(current.notlar)),
-                updated_at.eq(&now),
-            ))
-            .execute(conn)?;
+        // Gider kaydını güncelle (tenant filtreli)
+        diesel::update(
+            gider_dsl::giderler
+                .filter(gider_dsl::id.eq(&id))
+                .filter(gider_dsl::tenant_id.eq(&tenant_id_param)),
+        )
+        .set((
+            gider_dsl::kasa_id.eq(&yeni_kasa_id),
+            gider_dsl::gider_turu_id.eq(request.gider_turu_id.or(current.gider_turu_id)),
+            gider_dsl::tarih.eq(request.tarih.unwrap_or(current.tarih)),
+            gider_dsl::tutar.eq(yeni_tutar),
+            gider_dsl::aciklama.eq(request.aciklama.or(current.aciklama)),
+            gider_dsl::fatura_no.eq(request.fatura_no.or(current.fatura_no)),
+            gider_dsl::alt_kategori.eq(request.alt_kategori.or(current.alt_kategori)),
+            gider_dsl::islem_no.eq(request.islem_no.or(current.islem_no)),
+            gider_dsl::odeyen.eq(request.odeyen.or(current.odeyen)),
+            gider_dsl::notlar.eq(request.notlar.or(current.notlar)),
+            gider_dsl::updated_at.eq(&now),
+        ))
+        .execute(conn)?;
 
         // Bakiyeleri giderler SUM'ından yeniden hesapla — inline aritmetikten kaçın.
         update_kasa_bakiye(conn, &eski_kasa_id)?;
@@ -1265,13 +1293,18 @@ pub async fn update_gider(
             update_kasa_bakiye(conn, &yeni_kasa_id)?;
         }
 
+        // Outbox: kasa bakiye değişimleri türetilmiş alan — yalnızca gider kaydı kuyruğa girer
+        outbox::queue_change(conn, &tenant_id_param, "giderler", &id, "update")
+            .map_err(outbox_err)?;
+
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
 
     let _ = (eski_tutar, yeni_tutar);
 
-    let updated = giderler
-        .find(&id)
+    let updated = gider_dsl::giderler
+        .filter(gider_dsl::id.eq(&id))
+        .filter(gider_dsl::tenant_id.eq(&tenant_id_param))
         .first::<Gider>(&mut conn)
         .map_err(|e| e.to_string())?;
 
@@ -1288,7 +1321,8 @@ pub async fn delete_kasa(
     tenant_id_param: String,
     id: String,
 ) -> Result<(), String> {
-    use crate::db::schema::kasalar::dsl::*;
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
+    use crate::db::schema::kasalar::dsl as kasa_dsl;
 
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
@@ -1296,15 +1330,25 @@ pub async fn delete_kasa(
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Soft delete
-    diesel::update(kasalar.find(&id))
-        .filter(tenant_id.eq(&tenant_id_param))
+    // Soft delete + outbox kaydı aynı transaction'da
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::update(
+            kasa_dsl::kasalar
+                .filter(kasa_dsl::id.eq(&id))
+                .filter(kasa_dsl::tenant_id.eq(&tenant_id_param)),
+        )
         .set((
-            is_active.eq(false),
-            updated_at.eq(&now),
+            kasa_dsl::is_active.eq(false),
+            kasa_dsl::updated_at.eq(&now),
         ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+        .execute(conn)?;
+
+        outbox::queue_change(conn, &tenant_id_param, "kasalar", &id, "delete")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1399,8 +1443,16 @@ pub async fn delete_gelir(
                 .bind::<diesel::sql_types::Text, _>(&now)
                 .bind::<diesel::sql_types::Text, _>(aid_id)
                 .execute(conn)?;
+
+                // Outbox: dokunulan aidat kaydı da kuyruğa girer
+                outbox::queue_change(conn, &tenant_id_param, "aidat_takip", aid_id, "update")
+                    .map_err(outbox_err)?;
             }
         }
+
+        // Outbox: gelir silme (kasa bakiye değişimi türetilmiş alan, kuyruğa girmez)
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &record_id, "delete")
+            .map_err(outbox_err)?;
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
@@ -1456,6 +1508,10 @@ pub async fn delete_gider(
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&gider.kasa_id)
         .execute(conn)?;
+
+        // Outbox: gider silme (kasa bakiye değişimi türetilmiş alan, kuyruğa girmez)
+        outbox::queue_change(conn, &tenant_id_param, "giderler", &record_id, "delete")
+            .map_err(outbox_err)?;
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;
@@ -1531,6 +1587,10 @@ pub async fn delete_virman(
         .bind::<diesel::sql_types::Text, _>(&now)
         .bind::<diesel::sql_types::Text, _>(&virman.hedef_kasa_id)
         .execute(conn)?;
+
+        // Outbox: virman silme (kasa bakiye değişimleri türetilmiş alan, kuyruğa girmez)
+        outbox::queue_change(conn, &tenant_id_param, "virmanlar", &record_id, "delete")
+            .map_err(outbox_err)?;
 
         Ok(())
     }).map_err(|e: diesel::result::Error| e.to_string())?;

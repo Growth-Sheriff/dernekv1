@@ -422,11 +422,8 @@ export const UyelerListPage: React.FC = () => {
         uyeId: deletingUye.id,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'uyeler', 'delete', { id: deletingUye.id, tenant_id: tenant.id });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       toast.success('Üye silindi');
       refetch();

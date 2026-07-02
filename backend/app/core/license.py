@@ -6,13 +6,16 @@ Offline doğrulama destekler - İnternet gerektirmez.
 
 import hashlib
 import base64
+import os
 import struct
 from datetime import datetime, timedelta
 from typing import Optional, NamedTuple
 from dataclasses import dataclass
 
-# Güvenlik için gizli anahtar (production'da environment variable olmalı)
-LICENSE_SECRET = "BADER_LICENSE_SECRET_KEY_2024_CHANGE_IN_PROD"
+# DİKKAT: Bu anahtar üretilmiş lisans kodlarının checksum'una girer.
+# Değiştirmek mevcut tüm lisansları geçersiz kılar; env fallback'i bu
+# yüzden eski değerle birebir aynıdır.
+LICENSE_SECRET = os.getenv("BADER_LICENSE_SECRET", "BADER_LICENSE_SECRET_KEY_2024_CHANGE_IN_PROD")
 
 @dataclass
 class LicenseInfo:

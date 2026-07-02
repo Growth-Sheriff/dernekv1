@@ -24,22 +24,23 @@ export const UYE_DURUM_LISTESI = [
 
 /**
  * Aidat Durumları
+ * Backend değerleriyle birebir aynı (bkz. lib/enums.ts → AIDAT_DURUM)
  */
 export const AIDAT_DURUMLARI = {
-  BEKLIYOR: 'bekliyor',
+  BEKLEMEDE: 'beklemede',
+  ODENMEDI: 'odenmedi',
+  KISMI_ODENDI: 'kismi_odendi',
   ODENDI: 'odendi',
-  GECIKTI: 'gecikti',
-  KISMI: 'kismi',
   IPTAL: 'iptal',
 } as const;
 
 export type AidatDurum = typeof AIDAT_DURUMLARI[keyof typeof AIDAT_DURUMLARI];
 
 export const AIDAT_DURUM_LISTESI = [
-  { value: AIDAT_DURUMLARI.BEKLIYOR, label: 'Bekliyor', color: 'yellow' },
+  { value: AIDAT_DURUMLARI.BEKLEMEDE, label: 'Beklemede', color: 'yellow' },
+  { value: AIDAT_DURUMLARI.ODENMEDI, label: 'Ödenmedi', color: 'red' },
+  { value: AIDAT_DURUMLARI.KISMI_ODENDI, label: 'Kısmi Ödendi', color: 'orange' },
   { value: AIDAT_DURUMLARI.ODENDI, label: 'Ödendi', color: 'green' },
-  { value: AIDAT_DURUMLARI.GECIKTI, label: 'Gecikti', color: 'red' },
-  { value: AIDAT_DURUMLARI.KISMI, label: 'Kısmi Ödendi', color: 'orange' },
   { value: AIDAT_DURUMLARI.IPTAL, label: 'İptal', color: 'gray' },
 ];
 
@@ -293,16 +294,20 @@ export function getStatusColor(status: string): typeof STATUS_COLORS[keyof typeo
     // Uyarı durumları
     'Askıda': 'warning',
     'bekliyor': 'warning',
+    'beklemede': 'warning',
     'Bekliyor': 'warning',
     'Beklemede': 'warning',
     'kismi': 'warning',
+    'kismi_odendi': 'warning',
     'Kısmi Ödendi': 'warning',
-    
+
     // Hata durumları
     'Pasif': 'error',
     'Ayrıldı': 'error',
     'gecikti': 'error',
     'Gecikti': 'error',
+    'odenmedi': 'error',
+    'Ödenmedi': 'error',
     
     // Nötr durumlar
     'iptal': 'neutral',

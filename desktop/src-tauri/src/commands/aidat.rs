@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 use crate::db::models::AidatTakip;
+use crate::db::outbox::{self, TxError};
 
 type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
@@ -121,6 +122,7 @@ pub async fn get_aidat_takip(
 
     let mut query = aidat_takip
         .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
         .into_boxed();
 
     if let Some(uid) = filter_uye_id {
@@ -170,7 +172,10 @@ pub async fn get_aidat_takip_with_uye(
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     // Build dynamic WHERE clause with inline values for optional params
-    let mut where_clauses = vec!["a.tenant_id = ?1".to_string()];
+    let mut where_clauses = vec![
+        "a.tenant_id = ?1".to_string(),
+        "(a.is_deleted IS NULL OR a.is_deleted = 0)".to_string(),
+    ];
     
     if let Some(ref uid) = filter_uye_id {
         where_clauses.push(format!("a.uye_id = '{}'", uid.replace("'", "''")));
@@ -228,32 +233,28 @@ pub async fn create_aidat(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     // Durum değeri standardı: 'odenmedi' | 'kismi_odendi' | 'odendi' | 'iptal'
-    diesel::sql_query(
-        "INSERT INTO aidat_takip (id, tenant_id, uye_id, yil, ay, tutar, odenen, gecikme_gun, gecikme_faiz, durum, notlar, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0.0, 0, 0.0, 'odenmedi', ?7, ?8, ?9)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&new_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&data.uye_id)
-    .bind::<diesel::sql_types::Integer, _>(data.yil)
-    .bind::<diesel::sql_types::Integer, _>(data.ay)
-    .bind::<diesel::sql_types::Double, _>(data.tutar)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
-    .map_err(|e| e.to_string())?;
+    // Yazım + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::sql_query(
+            "INSERT INTO aidat_takip (id, tenant_id, uye_id, yil, ay, tutar, odenen, gecikme_gun, gecikme_faiz, durum, notlar, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0.0, 0, 0.0, 'odenmedi', ?7, ?8, ?9)"
+        )
+        .bind::<diesel::sql_types::Text, _>(&new_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&data.uye_id)
+        .bind::<diesel::sql_types::Integer, _>(data.yil)
+        .bind::<diesel::sql_types::Integer, _>(data.ay)
+        .bind::<diesel::sql_types::Double, _>(data.tutar)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(conn)?;
 
-    let sync_id = Uuid::new_v4().to_string();
-    diesel::sql_query(
-        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
-         VALUES (?1, ?2, 'aidat_takip', ?3, 'INSERT', '{}', ?4)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&sync_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&new_id)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &new_id, "create")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
     .map_err(|e| e.to_string())?;
 
     use crate::db::schema::aidat_takip::dsl::*;
@@ -297,7 +298,7 @@ pub async fn kaydet_odeme(
     };
 
     // Transaction ile aidat + gelir + kasa güncellemelerini yap
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+    conn.transaction::<_, TxError, _>(|conn| {
         // 1. Aidat kaydını güncelle
         diesel::sql_query(
             "UPDATE aidat_takip SET odenen = ?1, kalan = ?2, odeme_tarihi = ?3, durum = ?4, updated_at = ?5 WHERE id = ?6 AND tenant_id = ?7"
@@ -310,6 +311,9 @@ pub async fn kaydet_odeme(
         .bind::<diesel::sql_types::Text, _>(&aidat_id)
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
         .execute(conn)?;
+
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "update")
+            .map_err(TxError::Msg)?;
 
         // 2. Kasa ID kontrolü - varsa gelir ve kasa güncelle
         if let Some(ref kasa_id_val) = odeme.kasa_id {
@@ -334,7 +338,10 @@ pub async fn kaydet_odeme(
             .bind::<diesel::sql_types::Text, _>(&now)
             .execute(conn)?;
 
-            // Kasa bakiyesini güncelle
+            outbox::queue_change(conn, &tenant_id_param, "gelirler", &new_gelir_id, "create")
+                .map_err(TxError::Msg)?;
+
+            // Kasa bakiyesini güncelle (türetilmiş alanlar — kasalar için outbox kaydı atılmaz)
             diesel::sql_query(
                 "UPDATE kasalar 
                  SET toplam_gelir = COALESCE(toplam_gelir, 0.0) + ?1,
@@ -352,20 +359,7 @@ pub async fn kaydet_odeme(
         }
 
         Ok(())
-    }).map_err(|e: diesel::result::Error| e.to_string())?;
-
-    // Sync kaydı oluştur
-    let sync_id = Uuid::new_v4().to_string();
-    diesel::sql_query(
-        "INSERT INTO sync_changes (id, tenant_id, table_name, record_id, operation, data, created_at)
-         VALUES (?1, ?2, 'aidat_takip', ?3, 'UPDATE', '{}', ?4)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&sync_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&aidat_id)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
-    .map_err(|e| e.to_string())?;
+    }).map_err(|e: TxError| e.to_string())?;
 
     let result = aidat_takip
         .filter(id.eq(&aidat_id))
@@ -397,14 +391,23 @@ pub async fn hesapla_gecikme(
     let hesaplanan_faiz = kalan_tutar * (faiz_orani / 100.0) * (gun_sayisi as f64 / 30.0);
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    diesel::sql_query(
-        "UPDATE aidat_takip SET gecikme_gun = ?1, gecikme_faiz = ?2, updated_at = ?3 WHERE id = ?4"
-    )
-    .bind::<diesel::sql_types::Integer, _>(gun_sayisi)
-    .bind::<diesel::sql_types::Double, _>(hesaplanan_faiz)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&aidat_id)
-    .execute(&mut conn)
+    // Yazım + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::sql_query(
+            "UPDATE aidat_takip SET gecikme_gun = ?1, gecikme_faiz = ?2, updated_at = ?3 WHERE id = ?4"
+        )
+        .bind::<diesel::sql_types::Integer, _>(gun_sayisi)
+        .bind::<diesel::sql_types::Double, _>(hesaplanan_faiz)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&aidat_id)
+        .execute(conn)?;
+
+        // Not: tenant_id parametresi kullanılmıyor (mevcut davranış); kaydın kendi tenant_id'si kullanılır.
+        outbox::queue_change(conn, &aidat.tenant_id, "aidat_takip", &aidat_id, "update")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
     .map_err(|e| e.to_string())?;
 
     Ok(hesaplanan_faiz)
@@ -435,7 +438,8 @@ pub async fn get_aidat_ozet(
                            AND (yil * 100 + ay) < ?3 THEN 1 END) as geciken_adet
          FROM aidat_takip
          WHERE tenant_id = ?1 AND yil = ?2
-           AND (durum IS NULL OR durum != 'iptal')"
+           AND (durum IS NULL OR durum != 'iptal')
+           AND (is_deleted IS NULL OR is_deleted = 0)"
     )
     .bind::<diesel::sql_types::Text, &str>(&tenant_id_param)
     .bind::<diesel::sql_types::Integer, _>(yil)
@@ -689,8 +693,8 @@ pub async fn toplu_aidat_olustur(
                 tanim_tutar.unwrap_or(data.varsayilan_tutar)
             };
             
-            // Transaction içinde aidat + gelir oluştur
-            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // Transaction içinde aidat + outbox kaydı oluştur
+            conn.transaction::<_, TxError, _>(|conn| {
                 // Aidat kaydı oluştur
                 diesel::sql_query(
                     "INSERT INTO aidat_takip (
@@ -715,7 +719,10 @@ pub async fn toplu_aidat_olustur(
                 .bind::<diesel::sql_types::Text, _>(&now)
                 .bind::<diesel::sql_types::Text, _>(&now)
                 .execute(conn)?;
-                
+
+                outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "create")
+                    .map_err(TxError::Msg)?;
+
                 Ok(())
             }).map_err(|e| format!("Aidat oluşturulamadı: {}", e))?;
 
@@ -790,32 +797,39 @@ pub async fn toplu_aidat_kisi_bazli(
                 tanim_tutar.unwrap_or(0.0)
             };
             
-            // Aidat kaydı oluştur
-            diesel::sql_query(
-                "INSERT INTO aidat_takip (
-                    id, tenant_id, uye_id, yil, ay, tutar, odenen, kalan,
-                    durum, gecikme_gun, gecikme_faiz, notlar, aktarim_durumu,
-                    created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
-            )
-            .bind::<diesel::sql_types::Text, _>(&aidat_id)
-            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-            .bind::<diesel::sql_types::Text, _>(&uye.id)
-            .bind::<diesel::sql_types::Integer, _>(yil)
-            .bind::<diesel::sql_types::Integer, _>(1)
-            .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
-            .bind::<diesel::sql_types::Double, _>(0.0)
-            .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
-            .bind::<diesel::sql_types::Text, _>("beklemede")
-            .bind::<diesel::sql_types::Integer, _>(0)
-            .bind::<diesel::sql_types::Double, _>(0.0)
-            .bind::<diesel::sql_types::Text, _>(format!("Toplu oluşturuldu ({})", yil))
-            .bind::<diesel::sql_types::Text, _>("aktarilmadi")
-            .bind::<diesel::sql_types::Text, _>(&now)
-            .bind::<diesel::sql_types::Text, _>(&now)
-            .execute(&mut conn)
+            // Aidat kaydı + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+            conn.transaction::<_, TxError, _>(|conn| {
+                diesel::sql_query(
+                    "INSERT INTO aidat_takip (
+                        id, tenant_id, uye_id, yil, ay, tutar, odenen, kalan,
+                        durum, gecikme_gun, gecikme_faiz, notlar, aktarim_durumu,
+                        created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+                )
+                .bind::<diesel::sql_types::Text, _>(&aidat_id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .bind::<diesel::sql_types::Text, _>(&uye.id)
+                .bind::<diesel::sql_types::Integer, _>(yil)
+                .bind::<diesel::sql_types::Integer, _>(1)
+                .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
+                .bind::<diesel::sql_types::Double, _>(0.0)
+                .bind::<diesel::sql_types::Double, _>(uye_aidat_tutari)
+                .bind::<diesel::sql_types::Text, _>("beklemede")
+                .bind::<diesel::sql_types::Integer, _>(0)
+                .bind::<diesel::sql_types::Double, _>(0.0)
+                .bind::<diesel::sql_types::Text, _>(format!("Toplu oluşturuldu ({})", yil))
+                .bind::<diesel::sql_types::Text, _>("aktarilmadi")
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .execute(conn)?;
+
+                outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "create")
+                    .map_err(TxError::Msg)?;
+
+                Ok(())
+            })
             .map_err(|e| e.to_string())?;
-            
+
             olusturulan += 1;
             toplam += uye_aidat_tutari;
         }
@@ -862,108 +876,121 @@ pub async fn coklu_yil_odeme(
     let yil_sayisi = (data.bitis_yili - data.baslangic_yili + 1) as f64;
     let yillik_tutar = data.toplam_tutar / yil_sayisi;
 
-    let mut yillar = Vec::new();
-    let mut toplam_odenen: f64 = 0.0;
+    // Yazımlar + outbox kayıtları aynı transaction'da (doküman merkezi deseni)
+    let yillar = conn.transaction::<_, TxError, _>(|conn| {
+        let mut yillar = Vec::new();
+        let mut toplam_odenen: f64 = 0.0;
 
-    for y in data.baslangic_yili..=data.bitis_yili {
-        // Bu yıl için aidat var mı kontrol et
-        let mevcut = aidat_takip
-            .filter(tenant_id.eq(&tenant_id_param))
-            .filter(uye_id.eq(&data.uye_id))
-            .filter(yil.eq(y))
-            .first::<AidatTakip>(&mut conn)
-            .optional()
-            .map_err(|e| e.to_string())?;
+        for y in data.baslangic_yili..=data.bitis_yili {
+            // Bu yıl için aidat var mı kontrol et
+            let mevcut = aidat_takip
+                .filter(tenant_id.eq(&tenant_id_param))
+                .filter(uye_id.eq(&data.uye_id))
+                .filter(yil.eq(y))
+                .first::<AidatTakip>(conn)
+                .optional()?;
 
-        let aidat_id_for_gelir: String;
+            let aidat_id_for_gelir: String;
+            let aidat_op: &str;
 
-        if let Some(aidat_rec) = mevcut {
-            aidat_id_for_gelir = aidat_rec.id.clone();
-            
-            // Mevcut aidatı güncelle
-            diesel::update(aidat_takip.filter(id.eq(&aidat_rec.id)))
-                .set((
-                    odenen.eq(yillik_tutar),
-                    kalan.eq(0.0),
-                    durum.eq("odendi"),
-                    odeme_tarihi.eq(Some(&data.odeme_tarihi)),
-                    updated_at.eq(chrono::Utc::now().to_rfc3339()),
-                ))
-                .execute(&mut conn)
-                .map_err(|e| e.to_string())?;
-        } else {
-            // Yeni aidat kaydı oluştur
-            let new_id = Uuid::new_v4().to_string();
-            aidat_id_for_gelir = new_id.clone();
-            
-            let new_aidat = AidatTakip {
-                id: new_id,
-                tenant_id: tenant_id_param.clone(),
-                uye_id: data.uye_id.clone(),
-                yil: y,
-                ay: 1,
-                tutar: yillik_tutar,
-                odenen: yillik_tutar,
-                kalan: Some(0.0),
-                durum: "odendi".to_string(),
-                gecikme_gun: Some(0),
-                gecikme_faiz: Some(0.0),
-                tahsilat_turu: None,
-                banka_sube: None,
-                dekont_no: None,
-                aciklama: Some("Çoklu yıl ödemesi".to_string()),
-                notlar: Some("Çoklu yıl ödemesi".to_string()),
-                gelir_id: None,
-                aktarim_durumu: Some("Bekliyor".to_string()),
-                version: 1,
-                odeme_tarihi: Some(data.odeme_tarihi.clone()),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                updated_at: chrono::Utc::now().to_rfc3339(),
-            };
+            if let Some(aidat_rec) = mevcut {
+                aidat_id_for_gelir = aidat_rec.id.clone();
+                aidat_op = "update";
 
-            diesel::insert_into(aidat_takip)
-                .values(&new_aidat)
-                .execute(&mut conn)
-                .map_err(|e| e.to_string())?;
+                // Mevcut aidatı güncelle
+                diesel::update(aidat_takip.filter(id.eq(&aidat_rec.id)))
+                    .set((
+                        odenen.eq(yillik_tutar),
+                        kalan.eq(0.0),
+                        durum.eq("odendi"),
+                        odeme_tarihi.eq(Some(&data.odeme_tarihi)),
+                        updated_at.eq(chrono::Utc::now().to_rfc3339()),
+                    ))
+                    .execute(conn)?;
+            } else {
+                // Yeni aidat kaydı oluştur
+                let new_id = Uuid::new_v4().to_string();
+                aidat_id_for_gelir = new_id.clone();
+                aidat_op = "create";
+
+                let new_aidat = AidatTakip {
+                    id: new_id,
+                    tenant_id: tenant_id_param.clone(),
+                    uye_id: data.uye_id.clone(),
+                    yil: y,
+                    ay: 1,
+                    tutar: yillik_tutar,
+                    odenen: yillik_tutar,
+                    kalan: Some(0.0),
+                    durum: "odendi".to_string(),
+                    gecikme_gun: Some(0),
+                    gecikme_faiz: Some(0.0),
+                    tahsilat_turu: None,
+                    banka_sube: None,
+                    dekont_no: None,
+                    aciklama: Some("Çoklu yıl ödemesi".to_string()),
+                    notlar: Some("Çoklu yıl ödemesi".to_string()),
+                    gelir_id: None,
+                    aktarim_durumu: Some("Bekliyor".to_string()),
+                    version: 1,
+                    is_deleted: Some(0),
+                    odeme_tarihi: Some(data.odeme_tarihi.clone()),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                };
+
+                diesel::insert_into(aidat_takip)
+                    .values(&new_aidat)
+                    .execute(conn)?;
+            }
+
+            outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id_for_gelir, aidat_op)
+                .map_err(TxError::Msg)?;
+
+            // Her yıl için gelir kaydı oluştur ve kasa güncelle
+            let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+            let new_gelir_id = Uuid::new_v4().to_string();
+            let makbuz_no = format!("AIDAT-{}", &new_gelir_id[..8]);
+
+            diesel::sql_query(
+                "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, aidat_id, uye_id, makbuz_no, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)"
+            )
+            .bind::<diesel::sql_types::Text, _>(&new_gelir_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+            .bind::<diesel::sql_types::Text, _>("Aidat")
+            .bind::<diesel::sql_types::Double, _>(yillik_tutar)
+            .bind::<diesel::sql_types::Text, _>(&data.odeme_tarihi)
+            .bind::<diesel::sql_types::Text, _>(format!("Çoklu yıl ödemesi - {} yılı aidatı", y))
+            .bind::<diesel::sql_types::Text, _>(&aidat_id_for_gelir)
+            .bind::<diesel::sql_types::Text, _>(&data.uye_id)
+            .bind::<diesel::sql_types::Text, _>(&makbuz_no)
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .execute(conn)
+            .map_err(|e| TxError::Msg(format!("Gelir kaydı oluşturulamadı: {}", e)))?;
+
+            outbox::queue_change(conn, &tenant_id_param, "gelirler", &new_gelir_id, "create")
+                .map_err(TxError::Msg)?;
+
+            toplam_odenen += yillik_tutar;
+            yillar.push(y);
         }
 
-        // Her yıl için gelir kaydı oluştur ve kasa güncelle
+        // Toplam tutarı kasaya ekle (tek seferde) — türetilmiş alan, kasalar için outbox kaydı atılmaz
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let new_gelir_id = Uuid::new_v4().to_string();
-        let makbuz_no = format!("AIDAT-{}", &new_gelir_id[..8]);
-        
         diesel::sql_query(
-            "INSERT INTO gelirler (id, tenant_id, kasa_id, gelir_turu, tutar, tarih, aciklama, aidat_id, uye_id, makbuz_no, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?11)"
+            "UPDATE kasalar SET bakiye = bakiye + ?1, updated_at = ?2 WHERE id = ?3"
         )
-        .bind::<diesel::sql_types::Text, _>(&new_gelir_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
-        .bind::<diesel::sql_types::Text, _>("Aidat")
-        .bind::<diesel::sql_types::Double, _>(yillik_tutar)
-        .bind::<diesel::sql_types::Text, _>(&data.odeme_tarihi)
-        .bind::<diesel::sql_types::Text, _>(format!("Çoklu yıl ödemesi - {} yılı aidatı", y))
-        .bind::<diesel::sql_types::Text, _>(&aidat_id_for_gelir)
-        .bind::<diesel::sql_types::Text, _>(&data.uye_id)
-        .bind::<diesel::sql_types::Text, _>(&makbuz_no)
+        .bind::<diesel::sql_types::Double, _>(toplam_odenen)
         .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(&mut conn)
-        .map_err(|e| format!("Gelir kaydı oluşturulamadı: {}", e))?;
+        .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
+        .execute(conn)
+        .map_err(|e| TxError::Msg(format!("Kasa güncellenemedi: {}", e)))?;
 
-        toplam_odenen += yillik_tutar;
-        yillar.push(y);
-    }
-
-    // Toplam tutarı kasaya ekle (tek seferde)
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    diesel::sql_query(
-        "UPDATE kasalar SET bakiye = bakiye + ?1, updated_at = ?2 WHERE id = ?3"
-    )
-    .bind::<diesel::sql_types::Double, _>(toplam_odenen)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&data.kasa_id)
-    .execute(&mut conn)
-    .map_err(|e| format!("Kasa güncellenemedi: {}", e))?;
+        Ok(yillar)
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(CokluYilOdemeResult {
         success: true,
@@ -1140,7 +1167,7 @@ pub async fn kaydet_aidat_odeme_with_gelir(
     use crate::db::schema::aidat_takip::dsl::*;
 
     // Transaction + optimistic locking — iki kullanıcı aynı anda ödeme yaparsa ikisi de sağlam olur.
-    let result: Result<String, String> = conn.transaction::<_, diesel::result::Error, _>(|conn| {
+    let result: Result<String, String> = conn.transaction::<_, TxError, _>(|conn| {
         // 1. Mevcut aidat kaydını çek (version dahil)
         let current_aidat = aidat_takip
             .filter(id.eq(&data.aidat_id))
@@ -1174,7 +1201,7 @@ pub async fn kaydet_aidat_odeme_with_gelir(
 
         if affected == 0 {
             // Başka bir kullanıcı aynı anda ödeme yapmış — çakışma
-            return Err(diesel::result::Error::RollbackTransaction);
+            return Err(TxError::Diesel(diesel::result::Error::RollbackTransaction));
         }
 
         // 4. Gelir + kasa güncelleme (çift sayım olmaması için update_kasa_bakiye kullanır)
@@ -1186,12 +1213,20 @@ pub async fn kaydet_aidat_odeme_with_gelir(
             &uye.id,
             data.tutar,
             &data.odeme_tarihi,
-        ).map_err(|_| diesel::result::Error::RollbackTransaction)?;
+        ).map_err(|_| TxError::Diesel(diesel::result::Error::RollbackTransaction))?;
+
+        // 5. Outbox: gelir "create" + aidat "update" (create_gelir_from_aidat aidat üzerinde
+        //    gelir_id/aktarim_durumu da güncellediği için snapshot burada, en sonda alınır).
+        //    Kasa bakiyesi türetilmiş — kasalar için outbox kaydı atılmaz.
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &created_gelir_id, "create")
+            .map_err(TxError::Msg)?;
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &data.aidat_id, "update")
+            .map_err(TxError::Msg)?;
 
         Ok(created_gelir_id)
     })
     .map_err(|e| match e {
-        diesel::result::Error::RollbackTransaction =>
+        TxError::Diesel(diesel::result::Error::RollbackTransaction) =>
             "Ödeme çakışması: bu aidat kaydı bu arada değiştirilmiş. Lütfen sayfayı yenileyip tekrar deneyin.".to_string(),
         other => format!("Ödeme kaydedilemedi: {}", other),
     });
@@ -1241,24 +1276,33 @@ pub async fn add_aidat_odeme(
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     
     // Aidat kaydını güncelle (version check ile — concurrent ödeme çakışmalarını yakala)
-    let affected = diesel::sql_query(
-        "UPDATE aidat_takip
-         SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, version = version + 1, updated_at = ?5
-         WHERE id = ?6 AND version = ?7"
-    )
-    .bind::<diesel::sql_types::Double, _>(yeni_odenen)
-    .bind::<diesel::sql_types::Double, _>(yeni_kalan)
-    .bind::<diesel::sql_types::Text, _>(yeni_durum)
-    .bind::<diesel::sql_types::Text, _>(&today)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&aidat_id)
-    .bind::<diesel::sql_types::Integer, _>(current_aidat.version)
-    .execute(&mut conn)
-    .map_err(|e| format!("Aidat güncellenemedi: {}", e))?;
+    // Yazım + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        let affected = diesel::sql_query(
+            "UPDATE aidat_takip
+             SET odenen = ?1, kalan = ?2, durum = ?3, odeme_tarihi = ?4, version = version + 1, updated_at = ?5
+             WHERE id = ?6 AND version = ?7"
+        )
+        .bind::<diesel::sql_types::Double, _>(yeni_odenen)
+        .bind::<diesel::sql_types::Double, _>(yeni_kalan)
+        .bind::<diesel::sql_types::Text, _>(yeni_durum)
+        .bind::<diesel::sql_types::Text, _>(&today)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&aidat_id)
+        .bind::<diesel::sql_types::Integer, _>(current_aidat.version)
+        .execute(conn)
+        .map_err(|e| TxError::Msg(format!("Aidat güncellenemedi: {}", e)))?;
 
-    if affected == 0 {
-        return Err("Ödeme çakışması: bu aidat kaydı bu arada değiştirilmiş. Lütfen sayfayı yenileyip tekrar deneyin.".to_string());
-    }
+        if affected == 0 {
+            return Err(TxError::Msg("Ödeme çakışması: bu aidat kaydı bu arada değiştirilmiş. Lütfen sayfayı yenileyip tekrar deneyin.".to_string()));
+        }
+
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "update")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok("Ödeme kaydedildi".to_string())
 }
@@ -1277,7 +1321,7 @@ pub async fn add_aidat_odeme_with_gelir(
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     // TRANSACTION START - Critical for data consistency
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+    conn.transaction::<_, TxError, _>(|conn| {
         // 1. Mevcut aidat kaydını çek
         let current_aidat: AidatTakip = {
             use crate::db::schema::aidat_takip::dsl::*;
@@ -1329,14 +1373,21 @@ pub async fn add_aidat_odeme_with_gelir(
         .execute(conn)?;
 
         if affected == 0 {
-            return Err(diesel::result::Error::RollbackTransaction);
+            return Err(TxError::Diesel(diesel::result::Error::RollbackTransaction));
         }
 
         // 4. Kasa bakiyesini tek kaynaktan (gelirler SUM) yeniden hesapla.
         // NOT: Eski kod burada hem `bakiye += ?` hem `toplam_gelir += ?` yapıyordu ve ayrıca
         // gelirler tablosuna kayıt ekliyordu — bu çift sayım demekti.
         update_kasa_bakiye(conn, &kasa_id)
-            .map_err(|_| diesel::result::Error::RollbackTransaction)?;
+            .map_err(|_| TxError::Diesel(diesel::result::Error::RollbackTransaction))?;
+
+        // 5. Outbox: gelir "create" + aidat "update" aynı transaction'da.
+        //    Kasa bakiyesi türetilmiş — kasalar için outbox kaydı atılmaz.
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &gelir_id, "create")
+            .map_err(TxError::Msg)?;
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "update")
+            .map_err(TxError::Msg)?;
 
         Ok(())
     })
@@ -1404,7 +1455,9 @@ pub async fn update_aidat_odeme(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    use crate::db::schema::gelirler::dsl::*;
+    // DİKKAT: async fn içinde `use dsl::*` glob'u `id` parametresini gölgeleyip
+    // kolona çözündürüyor (find(&id) -> WHERE id = id, TÜM satırlar!).
+    // Bu yüzden kolonlar yalnızca alias üzerinden nitelenir.
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     // Mevcut gelir kaydını al
@@ -1419,17 +1472,24 @@ pub async fn update_aidat_odeme(
     let yeni_tutar = request.tutar.unwrap_or(eski_tutar);
     let tutar_farki = yeni_tutar - eski_tutar;
 
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Gelir kaydını güncelle
-        diesel::update(gelirler.find(&id))
-            .set((
-                tutar.eq(yeni_tutar),
-                tarih.eq(request.odeme_tarihi.unwrap_or(current.tarih)),
-                updated_at.eq(&now),
-            ))
-            .execute(conn)?;
+    conn.transaction::<_, TxError, _>(|conn| {
+        // Gelir kaydını güncelle (tenant filtreli)
+        diesel::update(
+            gelir_dsl::gelirler
+                .filter(gelir_dsl::id.eq(&id))
+                .filter(gelir_dsl::tenant_id.eq(&tenant_id_param)),
+        )
+        .set((
+            gelir_dsl::tutar.eq(yeni_tutar),
+            gelir_dsl::tarih.eq(request.odeme_tarihi.unwrap_or(current.tarih)),
+            gelir_dsl::updated_at.eq(&now),
+        ))
+        .execute(conn)?;
 
-        // Kasa bakiyesini güncelle
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &id, "update")
+            .map_err(TxError::Msg)?;
+
+        // Kasa bakiyesini güncelle (türetilmiş alanlar — kasalar için outbox kaydı atılmaz)
         if tutar_farki.abs() > 0.01 {
             diesel::sql_query(
                 "UPDATE kasalar 
@@ -1465,11 +1525,14 @@ pub async fn update_aidat_odeme(
                         aidat_takip::updated_at.eq(&now),
                     ))
                     .execute(conn)?;
+
+                outbox::queue_change(conn, &tenant_id_param, "aidat_takip", aid_id, "update")
+                    .map_err(TxError::Msg)?;
             }
         }
 
         Ok(())
-    }).map_err(|e: diesel::result::Error| e.to_string())?;
+    }).map_err(|e: TxError| e.to_string())?;
 
     Ok(())
 }
@@ -1484,7 +1547,7 @@ pub async fn delete_aidat_odeme(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    use crate::db::schema::gelirler::dsl::*;
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     // Önce gelir kaydını al
@@ -1495,12 +1558,19 @@ pub async fn delete_aidat_odeme(
         .first::<crate::db::models::Gelir>(&mut conn)
         .map_err(|e| e.to_string())?;
 
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        // Gelir kaydını sil
-        diesel::delete(gelirler.find(&id))
-            .execute(conn)?;
+    conn.transaction::<_, TxError, _>(|conn| {
+        // Gelir kaydını sil (tenant filtreli)
+        diesel::delete(
+            gelir_dsl::gelirler
+                .filter(gelir_dsl::id.eq(&id))
+                .filter(gelir_dsl::tenant_id.eq(&tenant_id_param)),
+        )
+        .execute(conn)?;
 
-        // Kasa bakiyesini güncelle (geliri geri çıkar)
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &id, "delete")
+            .map_err(TxError::Msg)?;
+
+        // Kasa bakiyesini güncelle (geliri geri çıkar; türetilmiş alanlar — kasalar için outbox kaydı atılmaz)
         diesel::sql_query(
             "UPDATE kasalar 
              SET toplam_gelir = COALESCE(toplam_gelir, 0.0) - ?1,
@@ -1535,10 +1605,13 @@ pub async fn delete_aidat_odeme(
                     aidat_takip::updated_at.eq(&now),
                 ))
                 .execute(conn)?;
+
+            outbox::queue_change(conn, &tenant_id_param, "aidat_takip", aid_id, "update")
+                .map_err(TxError::Msg)?;
         }
 
         Ok(())
-    }).map_err(|e: diesel::result::Error| e.to_string())?;
+    }).map_err(|e: TxError| e.to_string())?;
 
     Ok(())
 }
@@ -1556,8 +1629,7 @@ pub async fn update_aidat_tanimlama(
     id: String,
     request: UpdateAidatTanimlamaRequest,
 ) -> Result<AidatTakip, String> {
-    use crate::db::schema::aidat_takip::dsl::*;
-
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
@@ -1576,19 +1648,33 @@ pub async fn update_aidat_tanimlama(
     let yeni_kalan = yeni_tutar - current.odenen;
     let yeni_durum = if yeni_kalan <= 0.01 { "odendi" } else if current.odenen > 0.01 { "kismi_odendi" } else { "odenmedi" };
 
-    diesel::update(aidat_takip.find(&id))
+    // Not: Bu komut adına rağmen aidat_takip tablosuna yazar — sync yüzeyindedir.
+    // Yazım + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::update(
+            aidat_dsl::aidat_takip
+                .filter(aidat_dsl::id.eq(&id))
+                .filter(aidat_dsl::tenant_id.eq(&tenant_id_param)),
+        )
         .set((
-            tutar.eq(yeni_tutar),
-            kalan.eq(Some(yeni_kalan)),
-            durum.eq(yeni_durum),
-            notlar.eq(request.notlar.or(current.notlar)),
-            updated_at.eq(&now),
+            aidat_dsl::tutar.eq(yeni_tutar),
+            aidat_dsl::kalan.eq(Some(yeni_kalan)),
+            aidat_dsl::durum.eq(yeni_durum),
+            aidat_dsl::notlar.eq(request.notlar.or(current.notlar)),
+            aidat_dsl::updated_at.eq(&now),
         ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+        .execute(conn)?;
 
-    let updated = aidat_takip
-        .find(&id)
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &id, "update")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+
+    let updated = aidat_dsl::aidat_takip
+        .filter(aidat_dsl::id.eq(&id))
+        .filter(aidat_dsl::tenant_id.eq(&tenant_id_param))
         .first::<AidatTakip>(&mut conn)
         .map_err(|e| e.to_string())?;
 
@@ -1601,8 +1687,7 @@ pub async fn delete_aidat_tanimlama(
     tenant_id_param: String,
     id: String,
 ) -> Result<(), String> {
-    use crate::db::schema::aidat_takip::dsl::*;
-
+    // NOT: async fn'de `use dsl::*` glob'u `id` parametresini gölgeler — alias kullan.
     let pool = state.db.lock().unwrap();
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
@@ -1620,9 +1705,22 @@ pub async fn delete_aidat_tanimlama(
     }
 
     // Hard delete (ödeme yoksa)
-    diesel::delete(aidat_takip.find(&id))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+    // Not: Bu komut adına rağmen aidat_takip tablosundan siler — sync yüzeyindedir.
+    // Yazım + outbox kaydı aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::delete(
+            aidat_dsl::aidat_takip
+                .filter(aidat_dsl::id.eq(&id))
+                .filter(aidat_dsl::tenant_id.eq(&tenant_id_param)),
+        )
+        .execute(conn)?;
+
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &id, "delete")
+            .map_err(TxError::Msg)?;
+
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1683,11 +1781,12 @@ pub async fn get_uye_borc_durumlari(
     
     for uye_id in &uye_ids {
         let row = diesel::sql_query(
-            "SELECT uye_id, 
-                    COALESCE(SUM(tutar), 0.0) as toplam_borc, 
+            "SELECT uye_id,
+                    COALESCE(SUM(tutar), 0.0) as toplam_borc,
                     COALESCE(SUM(odenen), 0.0) as odenen
-             FROM aidat_takip 
+             FROM aidat_takip
              WHERE tenant_id = ?1 AND uye_id = ?2
+               AND (is_deleted IS NULL OR is_deleted = 0)
              GROUP BY uye_id"
         )
         .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
@@ -1817,6 +1916,7 @@ pub async fn get_uye_aidat_borclari(
                 SUM(kalan) as kalan
          FROM aidat_takip
          WHERE tenant_id = ?1 AND uye_id = ?2 AND kalan > 0
+           AND (is_deleted IS NULL OR is_deleted = 0)
          GROUP BY yil
          ORDER BY yil ASC"
     )
@@ -1863,30 +1963,37 @@ pub async fn ozel_tutar_borclandir(
             continue;
         }
 
-        // Yeni aidat kaydı oluştur
+        // Yeni aidat kaydı oluştur — yazım + outbox kaydı aynı transaction'da
         let aidat_id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-        diesel::sql_query(
-            "INSERT INTO aidat_takip (
-                id, tenant_id, uye_id, yil, ay, tutar, odenen, kalan,
-                durum, gecikme_gun, gecikme_faiz, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
-        )
-        .bind::<diesel::sql_types::Text, _>(&aidat_id)
-        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-        .bind::<diesel::sql_types::Text, _>(&uye_id)
-        .bind::<diesel::sql_types::Integer, _>(yil)
-        .bind::<diesel::sql_types::Integer, _>(1)
-        .bind::<diesel::sql_types::Double, _>(tutar)
-        .bind::<diesel::sql_types::Double, _>(0.0)
-        .bind::<diesel::sql_types::Double, _>(tutar)
-        .bind::<diesel::sql_types::Text, _>("beklemede")
-        .bind::<diesel::sql_types::Integer, _>(0)
-        .bind::<diesel::sql_types::Double, _>(0.0)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .bind::<diesel::sql_types::Text, _>(&now)
-        .execute(&mut conn)
+        conn.transaction::<_, TxError, _>(|conn| {
+            diesel::sql_query(
+                "INSERT INTO aidat_takip (
+                    id, tenant_id, uye_id, yil, ay, tutar, odenen, kalan,
+                    durum, gecikme_gun, gecikme_faiz, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+            )
+            .bind::<diesel::sql_types::Text, _>(&aidat_id)
+            .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+            .bind::<diesel::sql_types::Text, _>(&uye_id)
+            .bind::<diesel::sql_types::Integer, _>(yil)
+            .bind::<diesel::sql_types::Integer, _>(1)
+            .bind::<diesel::sql_types::Double, _>(tutar)
+            .bind::<diesel::sql_types::Double, _>(0.0)
+            .bind::<diesel::sql_types::Double, _>(tutar)
+            .bind::<diesel::sql_types::Text, _>("beklemede")
+            .bind::<diesel::sql_types::Integer, _>(0)
+            .bind::<diesel::sql_types::Double, _>(0.0)
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .bind::<diesel::sql_types::Text, _>(&now)
+            .execute(conn)?;
+
+            outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "create")
+                .map_err(TxError::Msg)?;
+
+            Ok(())
+        })
         .map_err(|e| e.to_string())?;
 
         olusturulan += 1;
@@ -1932,7 +2039,7 @@ pub async fn coklu_donem_tahsilat(
         version: i32,
     }
 
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+    conn.transaction::<_, TxError, _>(|conn| {
         let mut kalan_odeme = odeme_tutari;
         let mut odenen_yillar = Vec::new();
 
@@ -1979,8 +2086,11 @@ pub async fn coklu_donem_tahsilat(
 
                 if affected == 0 {
                     // Concurrent değişiklik — tüm toplu işlemi geri al
-                    return Err(diesel::result::Error::RollbackTransaction);
+                    return Err(TxError::Diesel(diesel::result::Error::RollbackTransaction));
                 }
+
+                outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "update")
+                    .map_err(TxError::Msg)?;
 
                 kalan_odeme -= odeme_miktari;
                 odenen_yillar.push(yil);
@@ -2002,7 +2112,10 @@ pub async fn coklu_donem_tahsilat(
         .bind::<diesel::sql_types::Text, _>(&chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
         .execute(conn)?;
 
-        // Kasa bakiyesini güncelle
+        outbox::queue_change(conn, &tenant_id_param, "gelirler", &gelir_id, "create")
+            .map_err(TxError::Msg)?;
+
+        // Kasa bakiyesini güncelle (türetilmiş alan — kasalar için outbox kaydı atılmaz)
         diesel::sql_query(
             "UPDATE kasalar SET bakiye = bakiye + ?1, updated_at = ?2 WHERE id = ?3"
         )
@@ -2055,7 +2168,7 @@ pub async fn delete_aidat_borclandirma(
         return Err("Bu aidata ödeme yapılmış. Önce ödemeleri iptal etmelisiniz.".to_string());
     }
 
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+    conn.transaction::<_, TxError, _>(|conn| {
         // SOFT DELETE: Aidat kaydını iptal et
         diesel::sql_query(
             "UPDATE aidat_takip SET durum = 'iptal', notlar = COALESCE(notlar, '') || ' [İPTAL: ' || ?1 || ']', updated_at = ?2 WHERE id = ?3"
@@ -2065,8 +2178,14 @@ pub async fn delete_aidat_borclandirma(
         .bind::<diesel::sql_types::Text, _>(&aidat_id)
         .execute(conn)?;
 
+        // İptal bir SİLME değildir: kayıt yerelde durum='iptal' olarak yaşamaya
+        // devam eder. "update" olarak yayınlanır ki diğer cihazlarda da aynı
+        // şekilde 'iptal' görünsün (tombstone'a dönüşüp kaybolmasın).
+        outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &aidat_id, "update")
+            .map_err(TxError::Msg)?;
+
         Ok(())
-    }).map_err(|e: diesel::result::Error| e.to_string())?;
+    }).map_err(|e: TxError| e.to_string())?;
 
     Ok(serde_json::json!({
         "success": true,
@@ -2134,21 +2253,204 @@ pub async fn toplu_aidat_iptal(
         "UPDATE aidat_takip SET durum = 'iptal', notlar = COALESCE(notlar, '') || ' [TOPLU İPTAL: {}]', updated_at = '{}' WHERE tenant_id = '{}' AND yil = {} AND odenen <= 0.01 AND durum != 'iptal'",
         now, now, tenant_id_param.replace("'", "''"), data.yil
     );
-    
+
+    // Etkilenecek kayıt id'lerini önce topla (outbox kayıtları için)
+    let mut id_query = format!(
+        "SELECT id FROM aidat_takip WHERE tenant_id = '{}' AND yil = {} AND odenen <= 0.01 AND durum != 'iptal'",
+        tenant_id_param.replace("'", "''"), data.yil
+    );
+
     if let Some(ref baslangic) = data.baslangic_tarihi {
         update_query.push_str(&format!(" AND created_at >= '{}'", baslangic.replace("'", "''")));
+        id_query.push_str(&format!(" AND created_at >= '{}'", baslangic.replace("'", "''")));
     }
     if let Some(ref bitis) = data.bitis_tarihi {
         update_query.push_str(&format!(" AND created_at <= '{}'", bitis.replace("'", "''")));
+        id_query.push_str(&format!(" AND created_at <= '{}'", bitis.replace("'", "''")));
     }
 
-    diesel::sql_query(&update_query)
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+    #[derive(QueryableByName)]
+    struct IdRow {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        id: String,
+    }
+
+    // Yazım + outbox kayıtları aynı transaction'da (doküman merkezi deseni)
+    conn.transaction::<_, TxError, _>(|conn| {
+        let etkilenen_ids: Vec<IdRow> = diesel::sql_query(&id_query).load(conn)?;
+
+        diesel::sql_query(&update_query).execute(conn)?;
+
+        // İptal bir SİLME değildir: kayıtlar yerelde durum='iptal' olarak kalır;
+        // "update" yayınlanır ki diğer cihazlarda da aynı görünsün.
+        for row in &etkilenen_ids {
+            outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &row.id, "update")
+                .map_err(TxError::Msg)?;
+        }
+
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(serde_json::json!({
         "success": true,
         "iptal_edilen": iptal_edilecek,
         "mesaj": format!("{} adet aidat borçlandırması iptal edildi", iptal_edilecek)
     }))
+}
+/// Tenant'ın tüm aidat kayıtları — bilanço ve kesin hesap raporları için.
+#[tauri::command]
+pub async fn get_all_aidat(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+) -> Result<Vec<AidatTakip>, String> {
+    use crate::db::schema::aidat_takip::dsl::*;
+
+    // TENANT ISOLATION: Verify access
+    state.verify_tenant_access(&tenant_id_param)?;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    aidat_takip
+        .filter(tenant_id.eq(&tenant_id_param))
+        .filter(is_deleted.is_null().or(is_deleted.eq(0)))
+        .order(yil.desc())
+        .then_order_by(ay.desc())
+        .load::<AidatTakip>(&mut conn)
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// AİDAT ↔ GELİR TUTARLILIK DENETİMİ
+// Kural: aidat.odenen == SUM(gelirler.tutar WHERE aidat_id = aidat.id, silinmemiş).
+// Rapor modunda yalnızca uyumsuzlukları döndürür; onar=true ile odenen/kalan/durum
+// baz gelir kayıtlarından yeniden hesaplanır ve değişiklik sync kuyruğuna girer.
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct AidatTutarlilikSorunu {
+    pub aidat_id: String,
+    pub uye_id: String,
+    pub yil: i32,
+    pub tutar: f64,
+    pub kayitli_odenen: f64,
+    pub gelirlerden_hesaplanan: f64,
+    pub fark: f64,
+    pub durum: String,
+    pub onarildi: bool,
+}
+
+#[derive(diesel::QueryableByName)]
+struct TutarlilikRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    uye_id: String,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    yil: i32,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    tutar: f64,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    odenen: f64,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    durum: String,
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    gelir_toplam: f64,
+}
+
+#[tauri::command]
+pub async fn check_aidat_gelir_tutarliligi(
+    state: State<'_, crate::AppState>,
+    tenant_id_param: String,
+    onar: bool,
+) -> Result<Vec<AidatTutarlilikSorunu>, String> {
+    use crate::db::outbox::{self, TxError};
+
+    state.verify_tenant_access(&tenant_id_param)?;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    // Yalnızca gelir bağlantılı ödemesi olan VEYA odenen>0 kayıtlar denetlenir;
+    // iptal kayıtları hariç. gelir_id'siz manuel ödemeler fark olarak raporlanır
+    // ama onarımda EZİLMEZ (gelir kaydı hiç yoksa dokunma).
+    let rows: Vec<TutarlilikRow> = diesel::sql_query(
+        "SELECT a.id, a.uye_id, a.yil, a.tutar, a.odenen, a.durum, \
+                COALESCE((SELECT SUM(g.tutar) FROM gelirler g \
+                          WHERE g.aidat_id = a.id \
+                            AND (g.is_deleted IS NULL OR g.is_deleted = 0)), 0.0) AS gelir_toplam \
+         FROM aidat_takip a \
+         WHERE a.tenant_id = ?1 \
+           AND (a.is_deleted IS NULL OR a.is_deleted = 0) \
+           AND a.durum != 'iptal'",
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .load(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut sorunlar = Vec::new();
+
+    for r in rows {
+        let fark = (r.odenen - r.gelir_toplam).abs();
+        if fark <= 0.01 {
+            continue;
+        }
+
+        // Gelir kaydı hiç yoksa (gelir_toplam == 0, odenen > 0) manuel ödeme
+        // olabilir — raporla ama onarma.
+        let gelir_kaydi_var = r.gelir_toplam > 0.01;
+        let mut onarildi = false;
+
+        if onar && gelir_kaydi_var {
+            let yeni_odenen = r.gelir_toplam;
+            let yeni_kalan = r.tutar - yeni_odenen;
+            let yeni_durum = if yeni_kalan <= 0.01 {
+                "odendi"
+            } else if yeni_odenen > 0.01 {
+                "kismi_odendi"
+            } else {
+                "odenmedi"
+            };
+
+            conn.transaction::<_, TxError, _>(|conn| {
+                diesel::sql_query(
+                    "UPDATE aidat_takip SET odenen = ?1, kalan = ?2, durum = ?3, updated_at = ?4 \
+                     WHERE id = ?5 AND tenant_id = ?6",
+                )
+                .bind::<diesel::sql_types::Double, _>(yeni_odenen)
+                .bind::<diesel::sql_types::Double, _>(yeni_kalan)
+                .bind::<diesel::sql_types::Text, _>(yeni_durum)
+                .bind::<diesel::sql_types::Text, _>(&now)
+                .bind::<diesel::sql_types::Text, _>(&r.id)
+                .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+                .execute(conn)?;
+
+                outbox::queue_change(conn, &tenant_id_param, "aidat_takip", &r.id, "update")
+                    .map_err(TxError::Msg)?;
+
+                Ok(())
+            })
+            .map_err(|e| e.to_string())?;
+
+            onarildi = true;
+        }
+
+        sorunlar.push(AidatTutarlilikSorunu {
+            aidat_id: r.id,
+            uye_id: r.uye_id,
+            yil: r.yil,
+            tutar: r.tutar,
+            kayitli_odenen: r.odenen,
+            gelirlerden_hesaplanan: r.gelir_toplam,
+            fark: r.odenen - r.gelir_toplam,
+            durum: r.durum,
+            onarildi,
+        });
+    }
+
+    Ok(sorunlar)
 }

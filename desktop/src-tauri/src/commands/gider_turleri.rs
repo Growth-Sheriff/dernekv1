@@ -4,6 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use crate::state::AppState;
 use crate::db::models::GiderTuru;
+use crate::db::outbox::{self, TxError};
 use crate::db::schema::gider_turleri;
 
 #[derive(serde::Deserialize)]
@@ -59,20 +60,27 @@ pub fn create_gider_turu(
     let now = Utc::now().to_rfc3339();
     let id = Uuid::new_v4().to_string();
 
-    diesel::insert_into(gider_turleri::table)
-        .values((
-            gider_turleri::id.eq(&id),
-            gider_turleri::tenant_id.eq(&tenant_id_param),
-            gider_turleri::ad.eq(&request.ad),
-            gider_turleri::kod.eq(&request.kod),
-            gider_turleri::aciklama.eq(&request.aciklama),
-            gider_turleri::varsayilan_fatura_prefix.eq(&request.varsayilan_fatura_prefix),
-            gider_turleri::is_active.eq(true),
-            gider_turleri::created_at.eq(&now),
-            gider_turleri::updated_at.eq(&now),
-        ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+    // Yazım + outbox kaydı aynı transaction'da
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::insert_into(gider_turleri::table)
+            .values((
+                gider_turleri::id.eq(&id),
+                gider_turleri::tenant_id.eq(&tenant_id_param),
+                gider_turleri::ad.eq(&request.ad),
+                gider_turleri::kod.eq(&request.kod),
+                gider_turleri::aciklama.eq(&request.aciklama),
+                gider_turleri::varsayilan_fatura_prefix.eq(&request.varsayilan_fatura_prefix),
+                gider_turleri::is_active.eq(true),
+                gider_turleri::created_at.eq(&now),
+                gider_turleri::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        outbox::queue_change(conn, &tenant_id_param, "gider_turleri", &id, "create")
+            .map_err(TxError::Msg)?;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     let created = gider_turleri::table
         .find(&id)
@@ -102,17 +110,24 @@ pub fn update_gider_turu(
         .first::<GiderTuru>(&mut conn)
         .map_err(|e| e.to_string())?;
 
-    diesel::update(gider_turleri::table.find(&id))
-        .set((
-            gider_turleri::ad.eq(request.ad.unwrap_or(current.ad)),
-            gider_turleri::kod.eq(request.kod.or(current.kod)),
-            gider_turleri::aciklama.eq(request.aciklama.or(current.aciklama)),
-            gider_turleri::varsayilan_fatura_prefix.eq(request.varsayilan_fatura_prefix.or(current.varsayilan_fatura_prefix)),
-            gider_turleri::is_active.eq(request.is_active.unwrap_or(current.is_active)),
-            gider_turleri::updated_at.eq(&now),
-        ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+    // Update + outbox kaydı aynı transaction'da
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::update(gider_turleri::table.find(&id))
+            .set((
+                gider_turleri::ad.eq(request.ad.unwrap_or(current.ad)),
+                gider_turleri::kod.eq(request.kod.or(current.kod)),
+                gider_turleri::aciklama.eq(request.aciklama.or(current.aciklama)),
+                gider_turleri::varsayilan_fatura_prefix.eq(request.varsayilan_fatura_prefix.or(current.varsayilan_fatura_prefix)),
+                gider_turleri::is_active.eq(request.is_active.unwrap_or(current.is_active)),
+                gider_turleri::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        outbox::queue_change(conn, &tenant_id_param, "gider_turleri", &id, "update")
+            .map_err(TxError::Msg)?;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     let updated = gider_turleri::table
         .find(&id)
@@ -135,14 +150,24 @@ pub fn delete_gider_turu(
     let now = Utc::now().to_rfc3339();
 
     // Soft delete - is_active = false
-    diesel::update(gider_turleri::table.find(&id))
-        .filter(gider_turleri::tenant_id.eq(&tenant_id_param))
-        .set((
-            gider_turleri::is_active.eq(false),
-            gider_turleri::updated_at.eq(&now),
-        ))
-        .execute(&mut conn)
-        .map_err(|e| e.to_string())?;
+    // Kayıt fiziksel olarak silinmediği için outbox'a "delete" (tombstone) değil,
+    // is_active=0 snapshot'ını taşıyan "update" yazılır.
+    conn.transaction::<_, TxError, _>(|conn| {
+        let affected = diesel::update(gider_turleri::table.find(&id))
+            .filter(gider_turleri::tenant_id.eq(&tenant_id_param))
+            .set((
+                gider_turleri::is_active.eq(false),
+                gider_turleri::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
+
+        if affected > 0 {
+            outbox::queue_change(conn, &tenant_id_param, "gider_turleri", &id, "update")
+                .map_err(TxError::Msg)?;
+        }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }

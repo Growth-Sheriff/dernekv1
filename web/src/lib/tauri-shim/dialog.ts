@@ -35,6 +35,7 @@ export const open = async (options?: {
 };
 
 export const save = async (options?: {
+    title?: string;
     defaultPath?: string;
     filters?: Array<{ name: string; extensions: string[] }>;
 }) => {

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 
+use crate::db::outbox::{self, TxError};
+
 #[derive(Debug, Serialize, Deserialize, Queryable, diesel::QueryableByName)]
 #[diesel(table_name = crate::db::schema::etkinlikler)]
 pub struct Etkinlik {
@@ -54,7 +56,7 @@ pub async fn get_etkinlikler(
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     let mut query = format!(
-        "SELECT * FROM etkinlikler WHERE tenant_id = '{}'",
+        "SELECT * FROM etkinlikler WHERE tenant_id = '{}' AND (is_deleted IS NULL OR is_deleted = 0)",
         tenant_id_param
     );
 
@@ -109,26 +111,33 @@ pub async fn create_etkinlik(
     let new_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    diesel::sql_query(
-        "INSERT INTO etkinlikler (id, tenant_id, baslik, aciklama, baslangic_tarihi, bitis_tarihi, yer, etkinlik_tipi, durum, tahmini_butce, katilimci_sayisi, sorumlu_uye_id, notlar, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
-    )
-    .bind::<diesel::sql_types::Text, _>(&new_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .bind::<diesel::sql_types::Text, _>(&data.baslik)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aciklama)
-    .bind::<diesel::sql_types::Text, _>(&data.baslangic_tarihi)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.bitis_tarihi)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.yer)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.etkinlik_tipi)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.durum)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(&data.tahmini_butce)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Integer>, _>(&data.katilimci_sayisi)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.sorumlu_uye_id)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .execute(&mut conn)
+    // Yazım + outbox kaydı aynı transaction'da
+    conn.transaction::<_, TxError, _>(|conn| {
+        diesel::sql_query(
+            "INSERT INTO etkinlikler (id, tenant_id, baslik, aciklama, baslangic_tarihi, bitis_tarihi, yer, etkinlik_tipi, durum, tahmini_butce, katilimci_sayisi, sorumlu_uye_id, notlar, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+        )
+        .bind::<diesel::sql_types::Text, _>(&new_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .bind::<diesel::sql_types::Text, _>(&data.baslik)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aciklama)
+        .bind::<diesel::sql_types::Text, _>(&data.baslangic_tarihi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.bitis_tarihi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.yer)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.etkinlik_tipi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.durum)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(&data.tahmini_butce)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Integer>, _>(&data.katilimci_sayisi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.sorumlu_uye_id)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .execute(conn)?;
+
+        outbox::queue_change(conn, &tenant_id_param, "etkinlikler", &new_id, "create")
+            .map_err(TxError::Msg)?;
+        Ok(())
+    })
     .map_err(|e| e.to_string())?;
 
     let result: Etkinlik = diesel::sql_query(&format!(
@@ -154,20 +163,29 @@ pub async fn update_etkinlik(
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    diesel::sql_query(
-        "UPDATE etkinlikler SET baslik = ?1, aciklama = ?2, baslangic_tarihi = ?3, yer = ?4, durum = ?5, tahmini_butce = ?6, notlar = ?7, updated_at = ?8 WHERE id = ?9 AND tenant_id = ?10"
-    )
-    .bind::<diesel::sql_types::Text, _>(&data.baslik)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aciklama)
-    .bind::<diesel::sql_types::Text, _>(&data.baslangic_tarihi)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.yer)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.durum)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(&data.tahmini_butce)
-    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
-    .bind::<diesel::sql_types::Text, _>(&now)
-    .bind::<diesel::sql_types::Text, _>(&etkinlik_id)
-    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
-    .execute(&mut conn)
+    // Update + outbox kaydı aynı transaction'da
+    conn.transaction::<_, TxError, _>(|conn| {
+        let affected = diesel::sql_query(
+            "UPDATE etkinlikler SET baslik = ?1, aciklama = ?2, baslangic_tarihi = ?3, yer = ?4, durum = ?5, tahmini_butce = ?6, notlar = ?7, updated_at = ?8 WHERE id = ?9 AND tenant_id = ?10"
+        )
+        .bind::<diesel::sql_types::Text, _>(&data.baslik)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.aciklama)
+        .bind::<diesel::sql_types::Text, _>(&data.baslangic_tarihi)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.yer)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.durum)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Double>, _>(&data.tahmini_butce)
+        .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(&data.notlar)
+        .bind::<diesel::sql_types::Text, _>(&now)
+        .bind::<diesel::sql_types::Text, _>(&etkinlik_id)
+        .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+        .execute(conn)?;
+
+        if affected > 0 {
+            outbox::queue_change(conn, &tenant_id_param, "etkinlikler", &etkinlik_id, "update")
+                .map_err(TxError::Msg)?;
+        }
+        Ok(())
+    })
     .map_err(|e| e.to_string())?;
 
     let result: Etkinlik = diesel::sql_query(&format!(
@@ -190,12 +208,85 @@ pub async fn delete_etkinlik(
     let pool = pool.as_ref().ok_or("Database not initialized")?;
     let mut conn = pool.get().map_err(|e| e.to_string())?;
 
-    diesel::sql_query(&format!(
-        "DELETE FROM etkinlikler WHERE id = '{}' AND tenant_id = '{}'",
-        etkinlik_id, tenant_id_param
-    ))
-    .execute(&mut conn)
+    // DELETE + outbox tombstone kaydı aynı transaction'da
+    conn.transaction::<_, TxError, _>(|conn| {
+        let affected = diesel::sql_query(&format!(
+            "DELETE FROM etkinlikler WHERE id = '{}' AND tenant_id = '{}'",
+            etkinlik_id, tenant_id_param
+        ))
+        .execute(conn)?;
+
+        if affected > 0 {
+            outbox::queue_change(conn, &tenant_id_param, "etkinlikler", &etkinlik_id, "delete")
+                .map_err(TxError::Msg)?;
+        }
+        Ok(())
+    })
     .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+// ============================================================================
+// ETKİNLİK ↔ MUHASEBE KOMPOZİSYONU
+// Gerçekleşen gelir/gider, etkinliğe bağlı baz kayıtlardan hesaplanır
+// (türetilmiş değer — sync edilmez, her cihazda yeniden hesaplanır).
+// ============================================================================
+
+#[derive(Debug, serde::Serialize)]
+pub struct EtkinlikMaliOzet {
+    pub etkinlik_id: String,
+    pub toplam_gelir: f64,
+    pub toplam_gider: f64,
+    pub net: f64,
+    pub gelir_sayisi: i64,
+    pub gider_sayisi: i64,
+}
+
+#[derive(diesel::QueryableByName)]
+struct MaliOzetRow {
+    #[diesel(sql_type = diesel::sql_types::Double)]
+    toplam: f64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    adet: i64,
+}
+
+#[tauri::command]
+pub async fn get_etkinlik_mali_ozet(
+    state: tauri::State<'_, crate::AppState>,
+    tenant_id_param: String,
+    etkinlik_id_param: String,
+) -> Result<EtkinlikMaliOzet, String> {
+    state.verify_tenant_access(&tenant_id_param)?;
+
+    let pool = state.db.lock().unwrap();
+    let pool = pool.as_ref().ok_or("Database not initialized")?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+
+    let gelir: MaliOzetRow = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) AS toplam, COUNT(*) AS adet FROM gelirler \
+         WHERE tenant_id = ?1 AND etkinlik_id = ?2 AND (is_deleted IS NULL OR is_deleted = 0)",
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, _>(&etkinlik_id_param)
+    .get_result(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    let gider: MaliOzetRow = diesel::sql_query(
+        "SELECT COALESCE(SUM(tutar), 0.0) AS toplam, COUNT(*) AS adet FROM giderler \
+         WHERE tenant_id = ?1 AND etkinlik_id = ?2 AND (is_deleted IS NULL OR is_deleted = 0)",
+    )
+    .bind::<diesel::sql_types::Text, _>(&tenant_id_param)
+    .bind::<diesel::sql_types::Text, _>(&etkinlik_id_param)
+    .get_result(&mut conn)
+    .map_err(|e| e.to_string())?;
+
+    Ok(EtkinlikMaliOzet {
+        etkinlik_id: etkinlik_id_param,
+        toplam_gelir: gelir.toplam,
+        toplam_gider: gider.toplam,
+        net: gelir.toplam - gider.toplam,
+        gelir_sayisi: gelir.adet,
+        gider_sayisi: gider.adet,
+    })
 }

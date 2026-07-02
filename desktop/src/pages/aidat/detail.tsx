@@ -102,15 +102,8 @@ export const AidatDetailPage: React.FC = () => {
         kasaId: selectedKasa,
       });
 
-      // Sync kuyruğuna ekle (aidat_takip + gelirler)
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'aidat_takip', 'update', { id, tenant_id: tenant.id });
-        // gelirler tablosu da etkileniyor
-        const latestGelirler = await invoke<any[]>('get_gelirler', { tenantIdParam: tenant.id, yil: 0 });
-        const created = latestGelirler?.sort((a: any, b: any) => b.created_at?.localeCompare(a.created_at || ''))?.[0];
-        if (created) await syncService.queueChange(tenant.id, 'gelirler', 'create', created);
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       setShowOdemeModal(false);
       loadAidat();
@@ -133,11 +126,8 @@ export const AidatDetailPage: React.FC = () => {
         aidatId: id,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'aidat_takip', 'delete', { id, tenant_id: tenant.id });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       navigate('/aidat');
     } catch (error) {

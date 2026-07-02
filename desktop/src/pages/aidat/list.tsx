@@ -205,11 +205,8 @@ export const AidatListPage: React.FC = () => {
         odemeTarihi: editingItem.odeme_tarihi || null,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'aidat_takip', 'update', { id: editingItem.id, tenant_id: tenant.id, tutar: editingItem.tutar, odenen: editingItem.odenen, odeme_tarihi: editingItem.odeme_tarihi });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       setShowEditModal(false);
       setEditingItem(null);
@@ -232,11 +229,8 @@ export const AidatListPage: React.FC = () => {
         odemeId: id,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'aidat_takip', 'delete', { id, tenant_id: tenant.id });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       loadAidatlar();
       loadOzet();

@@ -165,30 +165,14 @@ export const UyelerCreatePage: React.FC = () => {
           },
         });
 
-        // Sync to server in background (HYBRID mode)
-        try {
-          const { syncService } = await import('@/services/syncService');
-          await syncService.queueChange(tenant.id, 'uyeler', 'update', {
-            id: id,
-            tenant_id: tenant.id,
-            ad: data.ad,
-            soyad: data.soyad,
-            tc_no: data.tc_no,
-            uyelik_tipi: data.uyelik_tipi || 'Asil',
-            durum: data.durum,
-            giris_tarihi: data.giris_tarihi,
-            telefon: data.telefon,
-            email: data.email,
-          });
-        } catch (syncError) {
-          console.warn('Server sync failed:', syncError);
-        }
+        // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+        import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
         toast.success('Üye başarıyla güncellendi');
         navigate(`/uyeler/${id}`);
       } else {
         // Create new member
-        const result = await invoke<{ id: string }>('create_uye', {
+        await invoke<{ id: string }>('create_uye', {
           tenantIdParam: tenant.id,
           data: {
             tc_no: data.tc_no,
@@ -221,30 +205,8 @@ export const UyelerCreatePage: React.FC = () => {
           },
         });
 
-        // Sync to server in background (HYBRID mode)
-        try {
-          const uyeId = (result as any)?.id || (result as any)?.uye_id;
-          if (uyeId) {
-            const { syncService } = await import('@/services/syncService');
-            await syncService.queueChange(tenant.id, 'uyeler', 'create', {
-              id: uyeId,
-              tenant_id: tenant.id,
-              ad: data.ad,
-              soyad: data.soyad,
-              tc_no: data.tc_no,
-              uyelik_tipi: data.uyelik_tipi || 'Asil',
-              durum: data.durum,
-              giris_tarihi: data.giris_tarihi,
-              telefon: data.telefon,
-              email: data.email,
-              adres: data.adres,
-              meslek: data.meslek,
-            });
-            console.log('✅ Üye sync kuyruğuna eklendi');
-          }
-        } catch (syncError) {
-          console.warn('Server sync failed (will retry later):', syncError);
-        }
+        // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+        import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
         toast.success('Üye başarıyla oluşturuldu');
         navigate('/uyeler');

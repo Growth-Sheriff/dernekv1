@@ -132,6 +132,8 @@ class Kasa(SQLModel, table=True):
     tahakkuk_tutari: float = Field(default=0.0)
     serbest_bakiye: float = Field(default=0.0)
     is_active: bool = Field(default=True)
+    version: int = Field(default=1)
+    is_deleted: int = Field(default=0)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -145,6 +147,8 @@ class GelirTuru(SQLModel, table=True):
     aciklama: Optional[str] = None
     varsayilan_makbuz_prefix: Optional[str] = None
     is_active: bool = Field(default=True)
+    version: int = Field(default=1)
+    is_deleted: int = Field(default=0)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -158,6 +162,8 @@ class GiderTuru(SQLModel, table=True):
     aciklama: Optional[str] = None
     varsayilan_fatura_prefix: Optional[str] = None
     is_active: bool = Field(default=True)
+    version: int = Field(default=1)
+    is_deleted: int = Field(default=0)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -182,7 +188,9 @@ class Gelir(SQLModel, table=True):
     tahakkuk_durumu: Optional[str] = None
     notlar: Optional[str] = None
     belge_id: Optional[str] = None
+    etkinlik_id: Optional[str] = None
     is_deleted: int = Field(default=0)
+    version: int = Field(default=1)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -203,7 +211,9 @@ class Gider(SQLModel, table=True):
     odeyen: Optional[str] = None
     notlar: Optional[str] = None
     belge_id: Optional[str] = None
+    etkinlik_id: Optional[str] = None
     is_deleted: int = Field(default=0)
+    version: int = Field(default=1)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -272,6 +282,7 @@ class AidatTakip(SQLModel, table=True):
     gelir_id: Optional[str] = None
     aktarim_durumu: Optional[str] = None
     version: int = Field(default=1)
+    is_deleted: int = Field(default=0)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -292,19 +303,31 @@ class Virman(SQLModel, table=True):
     uygulanan_kur: Optional[float] = None
     kur_id: Optional[str] = None
     is_deleted: int = Field(default=0)
+    version: int = Field(default=1)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 # --- ETKINLIK (EVENT) ---
+# Desktop şemasıyla birebir hizalı (tablo adı çoğul: etkinlikler)
 class Etkinlik(SQLModel, table=True):
-    __tablename__ = "etkinlik"
+    __tablename__ = "etkinlikler"
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     tenant_id: str = Field(index=True)
-    ad: Optional[str] = None
+    baslik: str
     aciklama: Optional[str] = None
-    tarih: Optional[str] = None
-    konum: Optional[str] = None
-    is_active: bool = Field(default=True)
+    baslangic_tarihi: str
+    bitis_tarihi: Optional[str] = None
+    yer: Optional[str] = None
+    etkinlik_tipi: Optional[str] = None
+    durum: Optional[str] = None
+    katilimci_sayisi: Optional[int] = None
+    tahmini_butce: Optional[float] = None
+    gerceklesen_butce: Optional[float] = None
+    sorumlu_uye_id: Optional[str] = None
+    notlar: Optional[str] = None
+    created_by: Optional[str] = None
+    is_deleted: int = Field(default=0)
+    version: int = Field(default=1)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 

@@ -153,11 +153,8 @@ export const AidatListPage: React.FC = () => {
         odemeTarihi: updatedRow.odeme_tarihi || null,
       });
 
-      // Sync kuyruğuna ekle
-      try {
-        const { syncService } = await import('@/services/syncService');
-        await syncService.queueChange(tenant.id, 'aidat_takip', 'update', { id: change.rowId, tenant_id: tenant.id, tutar: updatedRow.tutar, odenen: updatedRow.odenen, odeme_tarihi: updatedRow.odeme_tarihi });
-      } catch (e) { console.warn('Sync queue hatası:', e); }
+      // Debounce'lu sync tetikle (outbox kaydı Rust transaction'ında atılıyor)
+      import('@/services/syncService').then(({ syncService }) => syncService.notifyLocalChange());
 
       // Optimistic update
       setAidatlar(prev => prev.map(item => 

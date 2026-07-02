@@ -1,116 +1,220 @@
 """
-Gelirler API Routes
+Gelirler API Routes (CRUD - web istemcisi)
 """
-from typing import List
-from uuid import UUID
+from typing import List, Optional
+from datetime import datetime
+import uuid as uuid_lib
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from pydantic import BaseModel
+from sqlmodel import Session, select, or_, col
 
 from app.core.db import get_session
 from app.api.auth import get_current_user
-from app.models.base import User, Transaction, TransactionType
-from app.schemas.mali import TransactionCreate, TransactionUpdate, TransactionResponse
+from app.models.base import User, Gelir, Kasa
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[TransactionResponse])
-async def list_gelirler(
-    skip: int = 0,
-    limit: int = 100,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Gelirler listesi
-    """
+# ========== SCHEMAS ==========
+class GelirCreate(BaseModel):
+    kasa_id: str
+    tarih: str
+    tutar: float
+    gelir_turu: Optional[str] = None
+    gelir_turu_id: Optional[str] = None
+    alt_kategori: Optional[str] = None
+    aciklama: Optional[str] = None
+    makbuz_no: Optional[str] = None
+    belge_no: Optional[str] = None
+    tahsil_eden: Optional[str] = None
+    aidat_id: Optional[str] = None
+    uye_id: Optional[str] = None
+    ait_oldugu_yil: Optional[int] = None
+    tahakkuk_durumu: Optional[str] = None
+    notlar: Optional[str] = None
+
+
+class GelirUpdate(BaseModel):
+    kasa_id: Optional[str] = None
+    tarih: Optional[str] = None
+    tutar: Optional[float] = None
+    gelir_turu: Optional[str] = None
+    gelir_turu_id: Optional[str] = None
+    alt_kategori: Optional[str] = None
+    aciklama: Optional[str] = None
+    makbuz_no: Optional[str] = None
+    belge_no: Optional[str] = None
+    tahsil_eden: Optional[str] = None
+    aidat_id: Optional[str] = None
+    uye_id: Optional[str] = None
+    ait_oldugu_yil: Optional[int] = None
+    tahakkuk_durumu: Optional[str] = None
+    notlar: Optional[str] = None
+
+
+class GelirResponse(BaseModel):
+    id: str
+    tenant_id: str
+    kasa_id: str
+    tarih: str
+    tutar: float
+    gelir_turu: Optional[str] = None
+    gelir_turu_id: Optional[str] = None
+    alt_kategori: Optional[str] = None
+    aciklama: Optional[str] = None
+    makbuz_no: Optional[str] = None
+    belge_no: Optional[str] = None
+    tahsil_eden: Optional[str] = None
+    aidat_id: Optional[str] = None
+    uye_id: Optional[str] = None
+    ait_oldugu_yil: Optional[int] = None
+    tahakkuk_durumu: Optional[str] = None
+    notlar: Optional[str] = None
+    version: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ========== HELPERS ==========
+def _require_tenant(current_user: User) -> str:
     if not current_user.tenant_id:
-        return []
-        
-    transactions = session.exec(
-        select(Transaction)
-        .where(
-            Transaction.tenant_id == current_user.tenant_id,
-            Transaction.type == TransactionType.INCOME
+        raise HTTPException(status_code=400, detail="Tenant ID required")
+    return current_user.tenant_id
+
+
+def _get_gelir_or_404(session: Session, item_id: str, tenant_id: str) -> Gelir:
+    obj = session.exec(
+        select(Gelir).where(
+            Gelir.id == item_id,
+            Gelir.tenant_id == tenant_id,
+            Gelir.is_deleted == 0,
         )
-        .offset(skip)
-        .limit(limit)
-        .order_by(Transaction.date.desc())
-    ).all()
-    return transactions
-
-
-@router.post("/", response_model=TransactionResponse, status_code=status.HTTP_201_CREATED)
-async def create_gelir(
-    data: TransactionCreate,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Yeni gelir oluştur
-    """
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant ID required")
-    
-    obj_in = data.dict()
-    obj_in["tenant_id"] = current_user.tenant_id
-    obj_in["type"] = TransactionType.INCOME
-    
-    db_obj = Transaction(**obj_in)
-    
-    session.add(db_obj)
-    session.commit()
-    session.refresh(db_obj)
-    return db_obj
-
-
-@router.get("/{item_id}", response_model=TransactionResponse)
-async def get_gelir(
-    item_id: str,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Gelir detayı
-    """
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant ID required")
-        
-    obj = session.get(Transaction, item_id)
+    ).first()
     if not obj:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-        
-    if obj.tenant_id != current_user.tenant_id or obj.type != TransactionType.INCOME:
-        raise HTTPException(status_code=403, detail="Not authorized or wrong type")
-        
+        raise HTTPException(status_code=404, detail="Gelir kaydı bulunamadı")
     return obj
 
 
-@router.put("/{item_id}", response_model=TransactionResponse)
+def _validate_kasa(session: Session, kasa_id: str, tenant_id: str) -> None:
+    kasa = session.exec(
+        select(Kasa).where(
+            Kasa.id == kasa_id,
+            Kasa.tenant_id == tenant_id,
+            Kasa.is_deleted == 0,
+        )
+    ).first()
+    if not kasa:
+        raise HTTPException(status_code=400, detail="Geçersiz kasa_id")
+
+
+# ========== ENDPOINTS ==========
+@router.get("/", response_model=List[GelirResponse])
+async def list_gelirler(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    kasa_id: Optional[str] = None,
+    gelir_turu_id: Optional[str] = None,
+    baslangic: Optional[str] = None,
+    bitis: Optional[str] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Gelir listesi (arama: açıklama / makbuz_no / belge_no)"""
+    tenant_id = _require_tenant(current_user)
+
+    query = select(Gelir).where(
+        Gelir.tenant_id == tenant_id,
+        Gelir.is_deleted == 0,
+    )
+    if search:
+        term = f"%{search}%"
+        query = query.where(
+            or_(
+                col(Gelir.aciklama).like(term),
+                col(Gelir.makbuz_no).like(term),
+                col(Gelir.belge_no).like(term),
+            )
+        )
+    if kasa_id:
+        query = query.where(Gelir.kasa_id == kasa_id)
+    if gelir_turu_id:
+        query = query.where(Gelir.gelir_turu_id == gelir_turu_id)
+    if baslangic:
+        query = query.where(Gelir.tarih >= baslangic)
+    if bitis:
+        query = query.where(Gelir.tarih <= bitis)
+
+    query = query.order_by(col(Gelir.tarih).desc()).offset(skip).limit(limit)
+    return session.exec(query).all()
+
+
+@router.post("/", response_model=GelirResponse, status_code=status.HTTP_201_CREATED)
+async def create_gelir(
+    data: GelirCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Yeni gelir oluştur"""
+    tenant_id = _require_tenant(current_user)
+    if data.tutar <= 0:
+        raise HTTPException(status_code=400, detail="Tutar 0'dan büyük olmalı")
+    _validate_kasa(session, data.kasa_id, tenant_id)
+
+    now = datetime.utcnow().isoformat()
+    obj = Gelir(
+        **data.dict(),
+        id=str(uuid_lib.uuid4()),
+        tenant_id=tenant_id,
+        version=1,
+        is_deleted=0,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    return obj
+
+
+@router.get("/{item_id}", response_model=GelirResponse)
+async def get_gelir(
+    item_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Gelir detayı"""
+    tenant_id = _require_tenant(current_user)
+    return _get_gelir_or_404(session, item_id, tenant_id)
+
+
+@router.put("/{item_id}", response_model=GelirResponse)
 async def update_gelir(
     item_id: str,
-    data: TransactionUpdate,
+    data: GelirUpdate,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Gelir güncelle
-    """
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant ID required")
-        
-    obj = session.get(Transaction, item_id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-        
-    if obj.tenant_id != current_user.tenant_id or obj.type != TransactionType.INCOME:
-        raise HTTPException(status_code=403, detail="Not authorized")
-        
-    obj_data = data.dict(exclude_unset=True)
-    for key, value in obj_data.items():
+    """Gelir güncelle"""
+    tenant_id = _require_tenant(current_user)
+    obj = _get_gelir_or_404(session, item_id, tenant_id)
+
+    changes = data.dict(exclude_unset=True)
+    if "tutar" in changes and changes["tutar"] is not None and changes["tutar"] <= 0:
+        raise HTTPException(status_code=400, detail="Tutar 0'dan büyük olmalı")
+    if "kasa_id" in changes and changes["kasa_id"]:
+        _validate_kasa(session, changes["kasa_id"], tenant_id)
+
+    for key, value in changes.items():
         setattr(obj, key, value)
-        
+
+    obj.updated_at = datetime.utcnow().isoformat()
+    obj.version = (obj.version or 1) + 1
+
     session.add(obj)
     session.commit()
     session.refresh(obj)
@@ -121,20 +225,15 @@ async def update_gelir(
 async def delete_gelir(
     item_id: str,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Gelir sil
-    """
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant ID required")
-        
-    obj = session.get(Transaction, item_id)
-    if not obj:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-        
-    if obj.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-        
-    session.delete(obj)
+    """Gelir sil (soft delete)"""
+    tenant_id = _require_tenant(current_user)
+    obj = _get_gelir_or_404(session, item_id, tenant_id)
+
+    obj.is_deleted = 1
+    obj.updated_at = datetime.utcnow().isoformat()
+    obj.version = (obj.version or 1) + 1
+
+    session.add(obj)
     session.commit()
